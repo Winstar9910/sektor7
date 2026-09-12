@@ -222,7 +222,7 @@ const uniformMats={ blue:new THREE.MeshStandardMaterial({color:0x4a5a46,roughnes
 const helmetMat=new THREE.MeshStandardMaterial({color:0x353b2e,roughness:.7});
 const G={ torso:new THREE.BoxGeometry(1.1,1.25,.6), vest:new THREE.BoxGeometry(1.2,.85,.7), leg:new THREE.BoxGeometry(.4,1.0,.45), arm:new THREE.BoxGeometry(.32,.9,.32), head:new THREE.SphereGeometry(.36,14,12), helmet:new THREE.SphereGeometry(.42,14,8,0,Math.PI*2,0,Math.PI/2), gun:new THREE.BoxGeometry(.18,.22,1.3), mag:new THREE.BoxGeometry(.14,.4,.22), scope:new THREE.BoxGeometry(.1,.14,.5) };
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
-const MAX_TWIST=.9;   // so weit darf sich der Oberkörper gegen die Beine verdrehen
+const MAX_TWIST=.45;  // darüber dreht sich der ganze Körper mit, nicht nur der Oberkörper
 // Waffenformen – die Mündungsmarke sitzt immer am sichtbaren Lauf,
 // damit Mündungsfeuer und Kugel exakt dort entstehen, wo die Waffe hinzeigt.
 const GUNSHAPE={ ak:{len:1,thick:1,muz:1.02}, shotgun:{len:.82,thick:1.3,muz:.88}, sniper:{len:1.5,thick:.88,muz:1.45} };
@@ -651,7 +651,7 @@ const UI={
 /* ======================================================================
    EINGABE – Tastatur, Maus (Pointer Lock), Touch-Joysticks, Wischen
    ====================================================================== */
-const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false };
+const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false, aimHeld:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
@@ -680,7 +680,8 @@ function joystick(el,cb){
   el.addEventListener('pointerup',end); el.addEventListener('pointercancel',end); el.addEventListener('lostpointercapture',end);
 }
 joystick($('joyMove'),(x,y)=>{ input.mx=x; input.mz=y; });
-joystick($('joyAim'),(x,y,on)=>{ input.ax=x; input.az=y; input.aimStick=on&&Math.hypot(x,y)>.3; });
+const AIM_DEADZONE=.35;   // darunter gilt: geradeaus ins Fadenkreuz
+joystick($('joyAim'),(x,y,on)=>{ input.ax=x; input.az=y; input.aimHeld=on; input.aimStick=on&&Math.hypot(x,y)>AIM_DEADZONE; });
 // Wischen zum Umsehen (Touch oder Maus ohne Pointer Lock)
 let swipe=null;
 canvas.addEventListener('pointerdown',e=>{ if(e.pointerType==='touch') isTouchPointer=true; if(state.phase!=='play') return; if(e.pointerType==='mouse'&&document.pointerLockElement===canvas) return; swipe={id:e.pointerId,x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); });
@@ -759,7 +760,18 @@ function updatePlayer(dt){
   }
   // Zielrichtung: Maus = Kamerarichtung, Touch = rechter Stick relativ zur Kamera
   let wantFire=false;
-  if(input.aimStick){ const ax=input.ax,az=input.az; const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw); aimDir.set(rx*ax - fx*az,0,rz*ax - fz*az).normalize(); aimAssist(aimDir); wantFire=true; }
+  if(input.aimHeld){
+    wantFire=true;
+    const ax=input.ax, az=input.az;
+    if(Math.hypot(ax,az)>AIM_DEADZONE){
+      // Stick gedrückt: Richtung des Sticks, der ganze Körper dreht sich dorthin
+      const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw);
+      aimDir.set(rx*ax - fx*az,0,rz*ax - fz*az).normalize(); aimAssist(aimDir);
+    } else {
+      // Stick nur gehalten: exakt geradeaus durch das Fadenkreuz, ohne Zielhilfe
+      aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw));
+    }
+  }
   else if(input.fire){ aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)); wantFire=true; }
 
   // Zielrichtung führt, die Beine ziehen nach. Der Oberkörper überbrückt die Differenz,
@@ -767,7 +779,7 @@ function updatePlayer(dt){
   if(wantFire) P.aimYaw=Math.atan2(aimDir.x,aimDir.z);
   else if(moving) P.aimYaw=P.moveYaw;
   let tw=wrapAngle(P.aimYaw-P.faceYaw);
-  P.faceYaw+=tw*Math.min(1,dt*(wantFire?11:9));
+  P.faceYaw+=tw*Math.min(1,dt*(wantFire?18:10));
   tw=wrapAngle(P.aimYaw-P.faceYaw);
   if(Math.abs(tw)>MAX_TWIST){ P.faceYaw+=tw-Math.sign(tw)*MAX_TWIST; tw=Math.sign(tw)*MAX_TWIST; }
 
