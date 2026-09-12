@@ -555,7 +555,7 @@ const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
-  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } }
+  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } }
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
@@ -604,7 +604,7 @@ if(wwEl){
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
-$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } });
+$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
@@ -678,10 +678,10 @@ function updatePlayer(dt){
 const camTarget=new THREE.Vector3(), camPos=new THREE.Vector3(), camLook=new THREE.Vector3(), camLookTarget=new THREE.Vector3();
 function updateCamera(dt){
   const P=player;
-  // Kamera dreht NUR beim Zielen/Schiessen mit (nicht beim Laufen!)
+  // Kamera dreht sanft beim Zielen mit (nur kleine Korrekturen)
   if(input.aimStick||input.fire){
     let yd=P.faceYaw-cam.yaw; yd=Math.atan2(Math.sin(yd),Math.cos(yd));
-    cam.yaw+=yd*Math.min(1,dt*4);
+    cam.yaw+=yd*Math.min(1,dt*1.2);
   }
   if(cam.fpv){
     // Ego-Perspektive: Kamera am Kopf, schaut nach vorn
