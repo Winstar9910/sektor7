@@ -89,7 +89,11 @@
 <div class="screen" id="startScreen">
   <div class="sheet">
     <div class="stamp">Prototyp</div>
-    <h1>Sektor 7<small>Team-Deathmatch gegen Bots · erstes Team mit <b id="goalHint">30</b> Abschüssen gewinnt</small></h1>
+    <h1>Sektor 7<small>Gegen Bots · erstes Team mit <b id="goalHint">30</b> <span id="goalUnit">Abschüssen</span> gewinnt</small></h1>
+    <div class="modes">
+      <button class="mode on" id="modeQuick" data-mode="quick"><b>Schnelles Spiel</b><span>Team-Deathmatch, Panzer im Feld</span></button>
+      <button class="mode" id="modeFlag" data-mode="flag"><b>Flaggen</b><span>Gegnerflagge holen und heimbringen, keine Panzer</span></button>
+    </div>
     <div class="controls-grid" id="ctrlDesktop">
       <div><b>W A S D</b>Laufen</div><div><b>Leertaste</b>Springen und klettern</div><div><b>Shift</b>Sprinten</div><div><b>Strg / C</b>Ducken</div><div><b>Maus</b>Umsehen, Linksklick feuert</div>
       <div><b>1 · 2 · 3 / Mausrad</b>Waffe wechseln</div><div><b>R</b>Nachladen</div>
