@@ -681,11 +681,12 @@ function joystick(el,cb){
 }
 joystick($('joyMove'),(x,y)=>{ input.mx=x; input.mz=y; });
 const AIM_DEADZONE=.35;   // darunter gilt: geradeaus ins Fadenkreuz
+let aimRef=null;          // Blickrichtung, auf die sich der gedrückte Stick bezieht
 joystick($('joyAim'),(x,y,on)=>{ input.ax=x; input.az=y; input.aimHeld=on; input.aimStick=on&&Math.hypot(x,y)>AIM_DEADZONE; });
 // Wischen zum Umsehen (Touch oder Maus ohne Pointer Lock)
 let swipe=null;
 canvas.addEventListener('pointerdown',e=>{ if(e.pointerType==='touch') isTouchPointer=true; if(state.phase!=='play') return; if(e.pointerType==='mouse'&&document.pointerLockElement===canvas) return; swipe={id:e.pointerId,x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointermove',e=>{ if(!swipe||e.pointerId!==swipe.id) return; const dx=e.clientX-swipe.x, dy=e.clientY-swipe.y; swipe.x=e.clientX; swipe.y=e.clientY; const s=state.sens*.0011; cam.yaw-=dx*s; cam.pitch=Math.max(-.35,Math.min(.6,cam.pitch+dy*s*.5)); });
+canvas.addEventListener('pointermove',e=>{ if(!swipe||e.pointerId!==swipe.id) return; const dx=e.clientX-swipe.x, dy=e.clientY-swipe.y; swipe.x=e.clientX; swipe.y=e.clientY; const s=state.sens*.0011; cam.yaw-=dx*s; if(aimRef!==null) aimRef-=dx*s; cam.pitch=Math.max(-.35,Math.min(.6,cam.pitch+dy*s*.5)); });
 const endSwipe=e=>{ if(swipe&&e.pointerId===swipe.id) swipe=null; };
 canvas.addEventListener('pointerup',endSwipe); canvas.addEventListener('pointercancel',endSwipe);
 // Buttons
@@ -764,15 +765,21 @@ function updatePlayer(dt){
     wantFire=true;
     const ax=input.ax, az=input.az;
     if(Math.hypot(ax,az)>AIM_DEADZONE){
-      // Stick gedrückt: Richtung des Sticks, der ganze Körper dreht sich dorthin
-      const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw);
+      // Stick gedrückt: Richtung des Sticks. Bezugspunkt ist die Blickrichtung beim Antippen –
+      // sonst würde sich die Kamera endlos im Kreis drehen, weil sie ihrer eigenen Vorgabe folgt.
+      if(aimRef===null) aimRef=cam.yaw;
+      const fx=-Math.sin(aimRef), fz=-Math.cos(aimRef); const rx=Math.cos(aimRef), rz=-Math.sin(aimRef);
       aimDir.set(rx*ax - fx*az,0,rz*ax - fz*az).normalize(); aimAssist(aimDir);
+      // Die Sicht dreht mit: Kamera zieht auf die Zielrichtung, in Schulter- wie in Egoperspektive
+      const wantCam=wrapAngle(Math.atan2(aimDir.x,aimDir.z)+Math.PI);
+      cam.yaw+=wrapAngle(wantCam-cam.yaw)*Math.min(1,dt*8);
     } else {
       // Stick nur gehalten: exakt geradeaus durch das Fadenkreuz, ohne Zielhilfe
+      aimRef=null;
       aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw));
     }
   }
-  else if(input.fire){ aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)); wantFire=true; }
+  else { aimRef=null; if(input.fire){ aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)); wantFire=true; } }
 
   // Zielrichtung führt, die Beine ziehen nach. Der Oberkörper überbrückt die Differenz,
   // deshalb zeigt die Waffe immer exakt dorthin, wo die Kugel hinfliegt.
