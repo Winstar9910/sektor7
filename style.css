@@ -151,8 +151,7 @@ canvas#gl{position:fixed;inset:0;display:block}
 #joyAim .knob::before{content:"";position:absolute;inset:20px;border-radius:50%;background:var(--signal)}
 .tbtn{position:absolute;pointer-events:auto;width:56px;height:56px;border-radius:50%;background:var(--ink-80);border:1.5px solid rgba(232,220,184,.35);color:var(--paper);font-weight:700;font-size:12px;letter-spacing:.06em;display:flex;align-items:center;justify-content:center;touch-action:none}
 .tbtn:active{background:var(--paper);color:var(--ink)}
-#btnJump{left:calc(178px + var(--safe-l));bottom:calc(36px + var(--safe-b));font-size:22px;line-height:1}
-#btnReload{right:calc(178px + var(--safe-r));bottom:calc(36px + var(--safe-b))}
+#btnJump{right:calc(178px + var(--safe-r));bottom:calc(36px + var(--safe-b));font-size:22px;line-height:1}
 #btnCam{right:calc(178px + var(--safe-r));bottom:calc(104px + var(--safe-b))}
 #hint{position:fixed;left:50%;bottom:calc(88px + var(--safe-b));transform:translateX(-50%);z-index:20;pointer-events:none;font-size:13px;color:var(--paper-dim);text-shadow:0 1px 3px #000;opacity:0;transition:opacity .4s}
 #hint.show{opacity:1}
