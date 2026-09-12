@@ -220,27 +220,109 @@ const gunMat=new THREE.MeshStandardMaterial({color:0x1c1c1c,roughness:.5,metalne
 const teamMats={ blue:new THREE.MeshStandardMaterial({color:0x3d6db8,roughness:.75}), red:new THREE.MeshStandardMaterial({color:0xb33a2a,roughness:.75}) };
 const uniformMats={ blue:new THREE.MeshStandardMaterial({color:0x4a5a46,roughness:.9}), red:new THREE.MeshStandardMaterial({color:0x5c4e3c,roughness:.9}) };
 const helmetMat=new THREE.MeshStandardMaterial({color:0x353b2e,roughness:.7});
-const G={ torso:new THREE.BoxGeometry(1.1,1.25,.6), vest:new THREE.BoxGeometry(1.2,.85,.7), leg:new THREE.BoxGeometry(.4,1.0,.45), arm:new THREE.BoxGeometry(.32,.9,.32), head:new THREE.SphereGeometry(.36,14,12), helmet:new THREE.SphereGeometry(.42,14,8,0,Math.PI*2,0,Math.PI/2), gun:new THREE.BoxGeometry(.18,.22,1.3), mag:new THREE.BoxGeometry(.14,.4,.22) };
+const G={ torso:new THREE.BoxGeometry(1.1,1.25,.6), vest:new THREE.BoxGeometry(1.2,.85,.7), leg:new THREE.BoxGeometry(.4,1.0,.45), arm:new THREE.BoxGeometry(.32,.9,.32), head:new THREE.SphereGeometry(.36,14,12), helmet:new THREE.SphereGeometry(.42,14,8,0,Math.PI*2,0,Math.PI/2), gun:new THREE.BoxGeometry(.18,.22,1.3), mag:new THREE.BoxGeometry(.14,.4,.22), scope:new THREE.BoxGeometry(.1,.14,.5) };
+const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
+const MAX_TWIST=.9;   // so weit darf sich der Oberkörper gegen die Beine verdrehen
+// Waffenformen – die Mündungsmarke sitzt immer am sichtbaren Lauf,
+// damit Mündungsfeuer und Kugel exakt dort entstehen, wo die Waffe hinzeigt.
+const GUNSHAPE={ ak:{len:1,thick:1,muz:1.02}, shotgun:{len:.82,thick:1.3,muz:.88}, sniper:{len:1.5,thick:.88,muz:1.45} };
+function setGunModel(g,key){
+  const u=g.userData; if(!u||!u.gun) return; const s=GUNSHAPE[key]||GUNSHAPE.ak;
+  u.gun.scale.set(s.thick,s.thick,s.len); u.gun.position.z=.35*s.len;
+  u.muzzle.position.z=s.muz; u.scope.visible= key==='sniper';
+  u.weaponKey=key;
+}
 function makeCharacter(team,isPlayer=false){
   const g=new THREE.Group(); const uni=uniformMats[team];
-  const mk=(geo,mat,x,y,z)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); m.castShadow=true; g.add(m); return m; };
-  const legL=mk(G.leg,uni,-.28,1.0,0), legR=mk(G.leg,uni,.28,1.0,0); legL.geometry=legR.geometry=G.leg; legL.position.y=legR.position.y=1.0;
-  // Drehpunkt an der Hüfte
-  const hipL=new THREE.Group(); hipL.position.set(-.28,1.5,0); legL.position.set(0,-.5,0); hipL.add(legL); g.add(hipL);
-  const hipR=new THREE.Group(); hipR.position.set(.28,1.5,0); legR.position.set(0,-.5,0); hipR.add(legR); g.add(hipR);
-  mk(G.torso,uni,0,2.1,0); const vest=mk(G.vest,teamMats[team],0,2.05,0);
+  const mk=(geo,mat,x,y,z,parent)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); m.castShadow=true; (parent||g).add(m); return m; };
+
+  // Beine an echten Hüftgelenken
+  const hipL=new THREE.Group(); hipL.position.set(-.28,1.5,0); g.add(hipL); mk(G.leg,uni,0,-.5,0,hipL);
+  const hipR=new THREE.Group(); hipR.position.set(.28,1.5,0); g.add(hipR); mk(G.leg,uni,0,-.5,0,hipR);
+
+  // Oberkörper als eigene Gruppe: dreht sich zur Zielrichtung, während die Beine nachziehen
+  const upper=new THREE.Group(); upper.position.set(0,1.45,0); g.add(upper);
+  mk(G.torso,uni,0,.65,0,upper);
+  const vest=mk(G.vest,teamMats[team],0,.6,0,upper);
   if(isPlayer) vest.material=new THREE.MeshStandardMaterial({color:0x5a8fe0,roughness:.6,emissive:0x1a3a80,emissiveIntensity:.35});
-  const head=mk(G.head,skinMat,0,3.1,0); mk(G.helmet,helmetMat,0,3.12,0);
-  const armL=new THREE.Group(); armL.position.set(-.7,2.6,0); const aL=mk(G.arm,uni,0,0,0); aL.position.set(0,-.35,.25); aL.rotation.x=-1.2; armL.add(aL); g.add(armL);
-  const armR=new THREE.Group(); armR.position.set(.7,2.6,0); const aR=mk(G.arm,uni,0,0,0); aR.position.set(0,-.35,.25); aR.rotation.x=-1.2; armR.add(aR); g.add(armR);
-  const gun=mk(G.gun,gunMat,.32,2.25,.75); mk(G.mag,gunMat,.32,2.05,.6);
-  g.userData={hipL,hipR,armL,armR,gun,walk:0,recoil:0};
+  const neck=new THREE.Group(); neck.position.set(0,1.3,0); upper.add(neck);
+  mk(G.head,skinMat,0,.35,0,neck); mk(G.helmet,helmetMat,0,.37,0,neck);
+
+  // Rechter Arm trägt die Waffe – die Waffe hängt am Arm, also bewegt sich beides zwangsläufig zusammen
+  const armR=new THREE.Group(); armR.position.set(.5,1.15,0); upper.add(armR);
+  const aR=mk(G.arm,uni,0,-.33,.2,armR); aR.rotation.x=-1.15;
+  const gunGrp=new THREE.Group(); gunGrp.position.set(-.18,-.35,.42); armR.add(gunGrp);
+  const gun=mk(G.gun,gunMat,0,0,.35,gunGrp);
+  const mag=mk(G.mag,gunMat,0,-.22,.08,gunGrp);
+  const scope=mk(G.scope,gunMat,0,.2,.35,gunGrp); scope.visible=false;
+  const muzzle=new THREE.Object3D(); muzzle.position.set(0,.02,1.02); gunGrp.add(muzzle);
+  // Linker Arm greift nach vorn an den Schaft
+  const armL=new THREE.Group(); armL.position.set(-.5,1.15,0); armL.rotation.y=.3; upper.add(armL);
+  const aL=mk(G.arm,uni,0,-.33,.22,armL); aL.rotation.x=-1.32;
+
+  g.userData={ hipL,hipR,armL,armR,upper,neck,gunGrp,gun,mag,scope,muzzle,
+    walk:0, amp:0, lastSin:0, stepped:false, bob:0, lean:0, armRBase:0, armLBase:0,
+    recoil:0, recoilRate:8, recoilKick:1, weaponKey:'ak' };
+  setGunModel(g,'ak');
   return g;
 }
-function animateCharacter(g,moving,dt,speedFactor=1){
-  const u=g.userData; u.walk+= (moving? dt*11*speedFactor : 0); const a= moving? Math.sin(u.walk)*.7 : 0;
-  u.hipL.rotation.x += (a - u.hipL.rotation.x)*Math.min(1,dt*14); u.hipR.rotation.x += (-a - u.hipR.rotation.x)*Math.min(1,dt*14);
-  u.recoil=Math.max(0,u.recoil-dt*6); u.gun.position.z=.75-u.recoil*.25;
+// Eine einzige Taktquelle: Schrittphase, Rückstoß, Oberkörperdrehung und Waffe
+// werden hier zusammen gesetzt, damit nichts auseinanderläuft.
+const _mzv=new THREE.Vector3();
+function muzzlePoint(mesh){ return mesh&&mesh.userData&&mesh.userData.muzzle? mesh.userData.muzzle.getWorldPosition(_mzv) : null; }
+function animateCharacter(g,dt,o){
+  o=o||{}; const u=g.userData; if(!u||!u.hipL) return;
+  const speed=o.speed||0, moving=!!o.moving;
+
+  // Schrittphase kommt aus der tatsächlich zurückgelegten Strecke –
+  // schneller laufen heißt automatisch schnellere Schritte, nie andersherum.
+  const stride=2.1;
+  if(moving&&speed>.15) u.walk+=(speed/stride)*Math.PI*dt;
+  const want= moving? Math.min(1,speed/8.5) : 0;
+  u.amp+=(want-u.amp)*Math.min(1,dt*9);
+  const s=Math.sin(u.walk);
+  // Fußaufsatz melden – das Schrittgeräusch hängt danach am sichtbaren Schritt
+  u.stepped = u.amp>.3 && ((s>=0)!==(u.lastSin>=0)); u.lastSin=s;
+
+  const swing=s*.6*u.amp;
+  u.hipL.rotation.x+=(swing-u.hipL.rotation.x)*Math.min(1,dt*20);
+  u.hipR.rotation.x+=(-swing-u.hipR.rotation.x)*Math.min(1,dt*20);
+
+  // Rückstoß: Tempo kommt von der Waffe, damit jeder Schuss ein eigener Impuls bleibt
+  u.recoil=Math.max(0,u.recoil-dt*(u.recoilRate||8));
+  const r=u.recoil*u.recoil*Math.min(1.5,u.recoilKick||1);
+
+  // Nachladen und Waffenwechsel laufen als weiche Kurve über denselben Takt
+  const rl=o.reload>0? Math.sin(Math.min(1,o.reload)*Math.PI) : 0;
+  const dip=o.dip||0;
+
+  // Oberkörper dreht zur Zielrichtung; beim Schießen sitzt er sofort exakt auf der Schussrichtung
+  const tw=o.twist||0;
+  if(o.snap) u.upper.rotation.y=tw; else u.upper.rotation.y+=(tw-u.upper.rotation.y)*Math.min(1,dt*24);
+  // Laufbewegung wird weich nachgezogen, der Rückstoß kommt hart obendrauf –
+  // sonst würde die Glättung genau den Schlag wegbügeln, den man sehen soll.
+  const lean=Math.cos(u.walk*2)*.018*u.amp - rl*.05;
+  u.lean+=(lean-u.lean)*Math.min(1,dt*20);
+  u.upper.rotation.x=u.lean-r*.045;
+  u.upper.rotation.z=-s*.05*u.amp;
+  u.neck.rotation.y=-u.upper.rotation.y*.3;
+
+  // Arme schwingen gegenläufig zu den Beinen, aber gedämpft – die Waffe bleibt im Anschlag
+  const armSwing=-s*.2*u.amp;
+  u.armRBase+=((armSwing + rl*.35 + dip*.5)-u.armRBase)*Math.min(1,dt*24);
+  u.armLBase+=((armSwing*.5 + rl*.8 + dip*.3)-u.armLBase)*Math.min(1,dt*24);
+  u.armR.rotation.x=u.armRBase-r*.24;
+  u.armL.rotation.x=u.armLBase-r*.14;
+  u.armL.rotation.z=rl*.45;
+
+  // Waffe folgt dem Arm und bekommt oben drauf Rückstoß, Nachladen, Waffenwechsel
+  u.gunGrp.position.z=.42-r*.1;
+  u.gunGrp.position.y=-.35-dip*.45-rl*.14;
+  u.gunGrp.rotation.x=r*.16-rl*.35;
+
+  // Körper federt im selben Takt wie die Beine
+  u.bob+=((Math.abs(Math.cos(u.walk))*.075*u.amp)-u.bob)*Math.min(1,dt*16);
+  g.position.y=u.bob;
 }
 
 /* ======================================================================
@@ -252,8 +334,8 @@ const weapons={
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff}
 };
-const state={ phase:'menu', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0 };
-const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, stepT:0, mesh:makeCharacter('blue',true) };
+const state={ phase:'menu', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0, shakeRate:6 };
+const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 
@@ -266,7 +348,7 @@ function teamSpawn(team,i){
 }
 function createBot(team,i){
   const s=teamSpawn(team,i);
-  const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:100, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, mesh:makeCharacter(team) };
+  const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:100, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, aimYaw:0, curSpeed:0, mesh:makeCharacter(team) };
   b.mesh.position.set(b.x,0,b.z); scene.add(b.mesh); bots.push(b);
 }
 for(let i=0;i<5;i++) createBot('blue',i);
@@ -324,13 +406,23 @@ function spawnBullet(shooter,pos,dir,w,team){
 }
 function fire(shooter,dir3,muzzle){
   const w=weapons[shooter.weapon];
+  // Startpunkt ist die tatsächliche Laufspitze im Modell, nicht ein gerechneter Ersatzpunkt.
+  // Damit der seitliche Versatz des Laufs nicht am Fadenkreuz vorbeischießt, läuft die Kugel
+  // auf denselben Zielpunkt zu, den die Ziellinie trifft.
+  const mp=muzzlePoint(shooter.mesh);
+  if(mp){
+    muzzle=mp.clone();
+    const conv=Math.min(w.range,32);
+    dir3=new THREE.Vector3(shooter.x+dir3.x*conv-mp.x, 0, shooter.z+dir3.z*conv-mp.z).normalize();
+  }
   for(let i=0;i<w.pellets;i++){
     const d=dir3.clone(); if(w.spread){ d.x+=(Math.random()-.5)*w.spread*2; d.y+=(Math.random()-.5)*w.spread*1.2; d.z+=(Math.random()-.5)*w.spread*2; } d.normalize();
     spawnBullet(shooter,muzzle,d,w,shooter.team);
   }
   Audio.shot(shooter.weapon, shooter===player?null:{x:shooter.x,z:shooter.z});
   muzzleFlash(muzzle,dir3, shooter===player);
-  if(shooter.mesh) shooter.mesh.userData.recoil=1;
+  // Rückstoß klingt genau bis zum nächsten Schuss ab – jede Waffe bekommt ihren eigenen Takt
+  if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=w.kick; u.recoilRate=Math.max(2.6,Math.min(14,1/Math.max(.07,w.cooldown*.85))); }
 }
 
 // Mündungsfeuer (Sprite + ein geteiltes Punktlicht für den Spieler)
@@ -417,7 +509,7 @@ function updateBots(dt){
     if(bot.invincible>0) bot.invincible-=dt;
     bot.shootTimer-=dt; bot.targetTimer-=dt; bot.pathTimer-=dt; bot.strafeTimer-=dt;
     if(bot.targetTimer<=0){ bot.target=findTarget(bot); bot.targetTimer=.3+Math.random()*.2; }
-    const t=bot.target; bot.moving=false;
+    const t=bot.target; bot.moving=false; bot.curSpeed=0;
     if(t&&t.alive){
       const dx=t.x-bot.x,dz=t.z-bot.z,dist=Math.hypot(dx,dz); const los=hasLOS(bot.x,bot.z,t.x,t.z);
       let mvx=0,mvz=0;
@@ -430,16 +522,24 @@ function updateBots(dt){
         if(bot.path.length>1&&bot.pathIndex<bot.path.length){ const wp=bot.path[bot.pathIndex]; const wx=wp.x-bot.x,wz=wp.z-bot.z,wd=Math.hypot(wx,wz); if(wd<1.2) bot.pathIndex++; else { mvx=wx/wd; mvz=wz/wd; } }
         else if(dist>3){ mvx=dx/dist; mvz=dz/dist; }
       }
-      if(mvx||mvz){ const l=Math.hypot(mvx,mvz); const ox=bot.x,oz=bot.z; moveEntity(bot,mvx/l*bot.speed*dt,mvz/l*bot.speed*dt); bot.moving=Math.hypot(bot.x-ox,bot.z-oz)>.001; if(!bot.moving){ bot.path=[]; bot.pathTimer=0; } }
-      const wantYaw=Math.atan2(dx,dz); let dy=wantYaw-bot.faceYaw; dy=Math.atan2(Math.sin(dy),Math.cos(dy)); bot.faceYaw+=dy*Math.min(1,dt*8);
-      if(los&&dist<55&&bot.shootTimer<=0&&Math.abs(dy)<.35){
-        const lead=0; const dir=new THREE.Vector3(dx,0,dz).normalize(); dir.x+=(Math.random()-.5)*.09; dir.z+=(Math.random()-.5)*.09; dir.normalize();
-        const muzzle=new THREE.Vector3(bot.x+Math.cos(bot.faceYaw)*.32+dir.x*1.2,2.25,bot.z-Math.sin(bot.faceYaw)*.32+dir.z*1.2);
-        fire({x:bot.x,z:bot.z,team:bot.team,weapon:'ak',mesh:bot.mesh,name:bot.name,isBot:true,ref:bot},dir,muzzle);
-        bot.burst++; if(bot.burst>=3+Math.random()*4){ bot.burst=0; bot.shootTimer=.7+Math.random()*.9; } else bot.shootTimer=.14+Math.random()*.06;
-      }
+      if(mvx||mvz){ const l=Math.hypot(mvx,mvz); const ox=bot.x,oz=bot.z; moveEntity(bot,mvx/l*bot.speed*dt,mvz/l*bot.speed*dt);
+        const gone=Math.hypot(bot.x-ox,bot.z-oz); bot.moving=gone>.001; bot.curSpeed= dt>0? gone/dt : 0; if(!bot.moving){ bot.path=[]; bot.pathTimer=0; } }
+      bot.aimYaw=Math.atan2(dx,dz);
+      let dy=wrapAngle(bot.aimYaw-bot.faceYaw); bot.faceYaw+=dy*Math.min(1,dt*8);
+      bot.twist=wrapAngle(bot.aimYaw-bot.faceYaw);
+      if(Math.abs(bot.twist)>MAX_TWIST){ bot.faceYaw+=bot.twist-Math.sign(bot.twist)*MAX_TWIST; bot.twist=Math.sign(bot.twist)*MAX_TWIST; }
+      bot.wantShoot = los&&dist<55&&bot.shootTimer<=0&&Math.abs(dy)<.5;
+      bot.shootDir = bot.wantShoot? new THREE.Vector3(dx,0,dz).normalize() : null;
+    } else { bot.curSpeed=0; bot.twist=wrapAngle(bot.aimYaw-bot.faceYaw); bot.wantShoot=false; }
+    // Erst die Figur stellen, dann feuern – die Kugel startet an der Laufspitze dieses Frames
+    bot.mesh.position.x=bot.x; bot.mesh.position.z=bot.z; bot.mesh.rotation.y=bot.faceYaw;
+    animateCharacter(bot.mesh,dt,{moving:bot.moving,speed:bot.curSpeed,twist:bot.twist||0,snap:bot.wantShoot});
+    if(bot.wantShoot){
+      const dir=bot.shootDir; dir.x+=(Math.random()-.5)*.09; dir.z+=(Math.random()-.5)*.09; dir.normalize();
+      fire({x:bot.x,z:bot.z,team:bot.team,weapon:'ak',mesh:bot.mesh,name:bot.name,isBot:true,ref:bot},dir,new THREE.Vector3(bot.x+dir.x*1.2,2.25,bot.z+dir.z*1.2));
+      bot.burst++; if(bot.burst>=3+Math.random()*4){ bot.burst=0; bot.shootTimer=.7+Math.random()*.9; } else bot.shootTimer=.14+Math.random()*.06;
+      bot.wantShoot=false;
     }
-    bot.mesh.position.set(bot.x,0,bot.z); bot.mesh.rotation.y=bot.faceYaw; animateCharacter(bot.mesh,bot.moving,dt);
   }
 }
 
@@ -555,7 +655,7 @@ const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
-  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } }
+  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.aimYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } }
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
@@ -604,22 +704,22 @@ if(wwEl){
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
-$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } });
+$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.aimYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
 // Smoothe Waffenwechsel-Animation
-const weaponSwitch = { active:false, timer:0, from:'ak', to:'ak', duration:.32 };
+const weaponSwitch = { active:false, timer:0, from:'ak', to:'ak', duration:.32, dip:0 };
 function selectWeapon(w){ if(player.weapon===w||player.reloading>0||weaponSwitch.active) return; weaponSwitch.active=true; weaponSwitch.timer=weaponSwitch.duration; weaponSwitch.from=player.weapon; weaponSwitch.to=w; Audio.click(); }
 function updateWeaponSwitch(dt){
-  if(!weaponSwitch.active) return;
+  if(!weaponSwitch.active){ weaponSwitch.dip=0; return; }
   weaponSwitch.timer-=dt;
   const half=weaponSwitch.duration/2;
-  if(weaponSwitch.timer<=half && player.weapon!==weaponSwitch.to){ player.weapon=weaponSwitch.to; player.mag=weapons[weaponSwitch.to].mag; player.shootTimer=.15; UI.weapon(); UI.status(); }
+  // Das Modell wechselt exakt im Tiefpunkt der Bewegung, nicht davor oder danach
+  if(weaponSwitch.timer<=half && player.weapon!==weaponSwitch.to){ player.weapon=weaponSwitch.to; player.mag=weapons[weaponSwitch.to].mag; player.shootTimer=.15; setGunModel(player.mesh,weaponSwitch.to); UI.weapon(); UI.status(); }
   const prog=1-weaponSwitch.timer/weaponSwitch.duration;
-  const dip=prog<.5? prog*2 : 2-prog*2;
-  if(player.mesh.userData.gun) player.mesh.userData.gun.position.y=2.25-dip*.6;
-  if(weaponSwitch.timer<=0){ weaponSwitch.active=false; if(player.mesh.userData.gun) player.mesh.userData.gun.position.y=2.25; }
+  weaponSwitch.dip= prog<.5? prog*2 : 2-prog*2;
+  if(weaponSwitch.timer<=0){ weaponSwitch.active=false; weaponSwitch.dip=0; }
 }
 function reload(){ const w=weapons[player.weapon]; if(player.reloading>0||player.mag===w.mag||!player.alive) return; player.reloading=w.reload; Audio.reload(); UI.status(); }
 // Radial-Waffenrad
@@ -641,7 +741,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.mesh.visible=true; cam.yaw=Math.atan2(-P.x,-P.z); UI.respawn(); UI.status(); }
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.mesh.visible=true; cam.yaw=Math.atan2(-P.x,-P.z); P.faceYaw=P.aimYaw=P.moveYaw=cam.yaw; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
   P.shootTimer-=dt;
@@ -651,24 +751,41 @@ function updatePlayer(dt){
   // Bewegung relativ zur Kamera
   let mx=input.mx, mz=input.mz;
   if(input.keys.KeyW||input.keys.ArrowUp) mz-=1; if(input.keys.KeyS||input.keys.ArrowDown) mz+=1; if(input.keys.KeyA||input.keys.ArrowLeft) mx-=1; if(input.keys.KeyD||input.keys.ArrowRight) mx+=1;
-  const len=Math.hypot(mx,mz); let moving=false;
+  const len=Math.hypot(mx,mz); let moving=false, realSpeed=0;
   if(len>.08){ const s=Math.min(1,len); mx/=len; mz/=len; const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw);
-    const dx=(rx*mx - fx*mz), dz=(rz*mx - fz*mz); const speed=9.5*s*(P.reloading>0?.8:1); const ox=P.x,oz=P.z; moveEntity(P,dx*speed*dt,dz*speed*dt); moving=Math.hypot(P.x-ox,P.z-oz)>.0005;
-    if(moving){ P.stepT+=dt*speed; if(P.stepT>4.2){ P.stepT=0; Audio.step(); } }
-    if(!input.aimStick&&!input.fire){ const want=Math.atan2(dx,dz); let d=want-P.faceYaw; d=Math.atan2(Math.sin(d),Math.cos(d)); P.faceYaw+=d*Math.min(1,dt*12); }
+    const dx=(rx*mx - fx*mz), dz=(rz*mx - fz*mz); const speed=9.5*s*(P.reloading>0?.8:1); const ox=P.x,oz=P.z; moveEntity(P,dx*speed*dt,dz*speed*dt);
+    const gone=Math.hypot(P.x-ox,P.z-oz); moving=gone>.0005; realSpeed= dt>0? gone/dt : 0;   // echtes Tempo, auch an der Wand
+    P.moveYaw=Math.atan2(dx,dz);
   }
   // Zielrichtung: Maus = Kamerarichtung, Touch = rechter Stick relativ zur Kamera
   let wantFire=false;
   if(input.aimStick){ const ax=input.ax,az=input.az; const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw); aimDir.set(rx*ax - fx*az,0,rz*ax - fz*az).normalize(); aimAssist(aimDir); wantFire=true; }
   else if(input.fire){ aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)); wantFire=true; }
-  if(wantFire){ const want=Math.atan2(aimDir.x,aimDir.z); let d=want-P.faceYaw; d=Math.atan2(Math.sin(d),Math.cos(d)); P.faceYaw+=d*Math.min(1,dt*18); }
+
+  // Zielrichtung führt, die Beine ziehen nach. Der Oberkörper überbrückt die Differenz,
+  // deshalb zeigt die Waffe immer exakt dorthin, wo die Kugel hinfliegt.
+  if(wantFire) P.aimYaw=Math.atan2(aimDir.x,aimDir.z);
+  else if(moving) P.aimYaw=P.moveYaw;
+  let tw=wrapAngle(P.aimYaw-P.faceYaw);
+  P.faceYaw+=tw*Math.min(1,dt*(wantFire?11:9));
+  tw=wrapAngle(P.aimYaw-P.faceYaw);
+  if(Math.abs(tw)>MAX_TWIST){ P.faceYaw+=tw-Math.sign(tw)*MAX_TWIST; tw=Math.sign(tw)*MAX_TWIST; }
+
+  // Pose zuerst setzen, danach schießen – so passt die Laufspitze zum Schuss desselben Frames
+  P.mesh.position.x=P.x; P.mesh.position.z=P.z; P.mesh.rotation.y=P.faceYaw;
+  const rlProg= P.reloading>0? 1-P.reloading/weapons[P.weapon].reload : 0;
+  animateCharacter(P.mesh,dt,{moving,speed:realSpeed,twist:tw,snap:wantFire,dip:weaponSwitch.dip,reload:rlProg});
+  if(P.mesh.userData.stepped) Audio.step();   // Schrittton genau beim sichtbaren Fußaufsatz
+
   const w=weapons[P.weapon];
-  if(wantFire&&P.shootTimer<=0&&P.reloading<=0){
+  if(wantFire&&P.shootTimer<=0&&P.reloading<=0&&!weaponSwitch.active){
     if(P.mag<=0){ reload(); }
-    else if(w.auto||!P.firedHeld){ P.mag--; P.shootTimer=w.cooldown; P.firedHeld=true; const muzzle=new THREE.Vector3(P.x+Math.cos(P.faceYaw)*.32+aimDir.x*1.3,2.25,P.z-Math.sin(P.faceYaw)*.32+aimDir.z*1.3); fire(P,aimDir,muzzle); state.shake=Math.max(state.shake,w.kick*.08); UI.status(); if(P.mag===0) reload(); }
+    else if(w.auto||!P.firedHeld){ P.mag--; P.shootTimer=w.cooldown; P.firedHeld=true;
+      fire(P,aimDir,new THREE.Vector3(P.x+aimDir.x*1.3,2.25,P.z+aimDir.z*1.3));
+      state.shake=Math.max(state.shake,w.kick*.06); state.shakeRate=Math.max(4,1/Math.max(.05,w.cooldown*.5));
+      UI.status(); if(P.mag===0) reload(); }
   }
   if(!wantFire) P.firedHeld=false;
-  P.mesh.position.set(P.x,0,P.z); P.mesh.rotation.y=P.faceYaw; animateCharacter(P.mesh,moving,dt);
   if(!cam.fpv) P.mesh.visible= P.invincible<=0 || Math.sin(state.time*30)>0;
 }
 
@@ -682,13 +799,13 @@ function updateCamera(dt){
   if(cam.fpv){
     // Ego-Perspektive: Kamera am Kopf, schaut nach vorn
     const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw);
-    camTarget.set(P.x, 3.0, P.z);
-    camPos.lerp(camTarget, 1-Math.pow(.00001,dt));
+    camTarget.set(P.x, 3.0+P.mesh.position.y*.5, P.z);
+    camPos.copy(camTarget);
     camera.position.copy(camPos);
-    const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
+    const shake=state.shake; state.shake=Math.max(0,shake-dt*(state.shakeRate||6));
     if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12; camera.position.y+=(Math.random()-.5)*shake*.1; }
     camLookTarget.set(P.x+fx*10, 2.8, P.z+fz*10);
-    camLook.lerp(camLookTarget, 1-Math.pow(.00003,dt));
+    camLook.copy(camLookTarget);
     camera.lookAt(camLook);
     P.mesh.visible=false;
   } else {
@@ -697,13 +814,13 @@ function updateCamera(dt){
     const cx=P.x+Math.sin(cam.yaw)*d*Math.cos(pitch), cz=P.z+Math.cos(cam.yaw)*d*Math.cos(pitch), cy=2.4+d*Math.sin(pitch)+2.2;
     let t=1; const sx=P.x,sz=P.z; for(let k=.15;k<=1;k+=.05){ const px=sx+(cx-sx)*k, pz=sz+(cz-sz)*k; if(blocked(px,pz,.5)){ t=Math.max(.15,k-.08); break; } }
     camTarget.set(sx+(cx-sx)*t, cy*(.6+.4*t), sz+(cz-sz)*t);
-    camPos.lerp(camTarget, 1-Math.pow(.00005,dt));
-    const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
-    camera.position.copy(camPos); if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.22; camera.position.y+=(Math.random()-.5)*shake*.18; }
-    // Blickpunkt: leicht vor dem Spieler
+    camPos.lerp(camTarget, 1-Math.pow(1e-8,dt));
+    const shake=state.shake; state.shake=Math.max(0,shake-dt*(state.shakeRate||6));
+    camera.position.copy(camPos); if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.18; camera.position.y+=(Math.random()-.5)*shake*.15; }
+    // Blickpunkt ohne Verzoegerung: das Fadenkreuz zeigt exakt dorthin, wo die Kugel hinfliegt
     const aimX=-Math.sin(cam.yaw)*3, aimZ=-Math.cos(cam.yaw)*3;
     camLookTarget.set(P.x+aimX, 2.2, P.z+aimZ);
-    camLook.lerp(camLookTarget, 1-Math.pow(.00008,dt));
+    camLook.copy(camLookTarget);
     camera.lookAt(camLook);
     P.mesh.visible=P.invincible<=0||Math.sin(state.time*30)>0;
   }
@@ -890,7 +1007,7 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.faceYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  state.score={blue:0,red:0}; state.time=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
@@ -932,10 +1049,10 @@ let last=performance.now(), hudT=0;
 function frame(now){
   requestAnimationFrame(frame); const dt=Math.min((now-last)/1000,.05); last=now; state.time+=dt;
   if(state.phase==='play'||state.phase==='end'){
-    if(state.phase==='play'){ updatePlayer(dt); updateBots(dt); updateTanks(dt); updateWeaponSwitch(dt); }
+    if(state.phase==='play'){ updateWeaponSwitch(dt); updatePlayer(dt); updateBots(dt); updateTanks(dt); }
     updateBullets(dt); updateEffects(dt); updateHeli(dt); updateBombs(dt); updateNuke(dt); updateCamera(dt);
     hudT+=dt; if(hudT>.1){ hudT=0; const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
-  } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,false,dt)); }
+  } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,dt,{})); }
   if(!state.noRender) renderer.render(scene,camera);
 }
 requestAnimationFrame(frame);
