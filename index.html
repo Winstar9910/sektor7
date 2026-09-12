@@ -15,13 +15,10 @@
 </head>
 <body>
 <canvas id="gl"></canvas>
-
 <div id="orient">Bitte das Handy quer halten.<br><span style="font-size:15px;color:var(--paper-dim)">Die Steuerung braucht die Breite.</span></div>
-
 <div id="vignette"></div>
 <div id="hurtDir"></div>
 <div id="flash"></div>
-
 <div id="hud" hidden>
   <div id="killfeed"></div>
   <div class="hud-panel" id="scoreboard">
@@ -29,23 +26,22 @@
     <div class="goal">bis <span id="goalN">30</span></div>
     <div class="team r"><strong id="scoreRed">0</strong><span>Rot</span></div>
   </div>
-  <div id="crosshair"><svg viewBox="0 0 44 44">
-    <circle class="ring" cx="22" cy="22" r="14"/>
-    <line class="tick" x1="22" y1="2" x2="22" y2="9"/><line class="tick" x1="22" y1="35" x2="22" y2="42"/>
-    <line class="tick" x1="2" y1="22" x2="9" y2="22"/><line class="tick" x1="35" y1="22" x2="42" y2="22"/>
-    <circle cx="22" cy="22" r="1.5" fill="rgba(232,220,184,.9)"/>
-    <g class="hit"><line x1="12" y1="12" x2="17" y2="17"/><line x1="32" y1="12" x2="27" y2="17"/><line x1="12" y1="32" x2="17" y2="27"/><line x1="32" y1="32" x2="27" y2="27"/></g>
+  <div id="crosshair"><svg viewBox="0 0 48 48">
+    <circle class="ring" cx="24" cy="24" r="10" stroke-dasharray="3 5"/>
+    <line class="tick" x1="24" y1="2" x2="24" y2="11"/><line class="tick" x1="24" y1="37" x2="24" y2="46"/>
+    <line class="tick" x1="2" y1="24" x2="11" y2="24"/><line class="tick" x1="37" y1="24" x2="46" y2="24"/>
+    <circle class="dot" cx="24" cy="24" r="1.8" fill="rgba(255,240,200,.95)"/>
+    <circle class="outer" cx="24" cy="24" r="18" stroke-dasharray="2 8"/>
+    <g class="hit"><line x1="12" y1="12" x2="17" y2="17"/><line x1="36" y1="12" x2="31" y2="17"/><line x1="12" y1="36" x2="17" y2="31"/><line x1="36" y1="36" x2="31" y2="31"/></g>
   </svg></div>
   <div id="toast"></div>
   <div id="center" hidden><h2 id="centerTitle"></h2><p id="centerSub"></p></div>
-
   <div class="hud-panel" id="status">
     <div id="reloadTag">Nachladen</div>
     <div id="hpRow"><strong id="hpNum">100</strong><span>HP</span><span id="weaponLabel">AK-47</span></div>
     <div id="hpBar"><i id="hpFill"></i></div>
     <div id="ammoRow"><strong id="ammoMag">30</strong><span>/ <span id="ammoRes">∞</span></span></div>
   </div>
-
   <div class="hud-panel" id="streakBox">
     <div id="streakCount">Serie <b id="streakN">0</b></div>
     <button class="streak" id="btnHeli" aria-label="Helikopter rufen">
@@ -57,14 +53,31 @@
       <span>Nuke</span><span class="need">7</span>
     </button>
   </div>
-
   <div id="weaponBar">
     <button class="wpn active" data-w="ak"><kbd>1</kbd>AK-47</button>
     <button class="wpn" data-w="shotgun"><kbd>2</kbd>Shotgun</button>
     <button class="wpn" data-w="sniper"><kbd>3</kbd>Sniper</button>
   </div>
+  <!-- Radiales Waffenrad (Touch + Tab) -->
+  <div id="weaponWheel">
+    <div class="ww-ring">
+      <button class="ww-slot" data-w="ak" style="--angle:0deg">
+        <svg viewBox="0 0 24 24"><path d="M3 12h14l4-3v6l-4-3H3z"/></svg>
+        <span>AK-47</span>
+      </button>
+      <button class="ww-slot" data-w="shotgun" style="--angle:120deg">
+        <svg viewBox="0 0 24 24"><path d="M2 12h10l2-2v4l-2-2H2z"/><path d="M14 10h8M14 14h8"/></svg>
+        <span>Shotgun</span>
+      </button>
+      <button class="ww-slot" data-w="sniper" style="--angle:240deg">
+        <svg viewBox="0 0 24 24"><path d="M2 12h18M12 4v16"/><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span>Sniper</span>
+      </button>
+    </div>
+    <div class="ww-center">Waffe</div>
+  </div>
+  <button class="tbtn" id="btnWeaponWheel" aria-label="Waffenrad">⚙</button>
 </div>
-
 <div id="touch" hidden>
   <div class="joy" id="joyMove"><div class="knob"></div></div>
   <div class="joy" id="joyAim"><div class="knob"></div></div>
@@ -72,19 +85,18 @@
   <button class="tbtn" id="btnCam" aria-label="Kamera zentrieren">CAM</button>
 </div>
 <div id="hint"></div>
-
 <div class="screen" id="startScreen">
   <div class="sheet">
     <div class="stamp">Prototyp</div>
     <h1>Sektor 7<small>Team-Deathmatch gegen Bots · erstes Team mit 30 Abschüssen gewinnt</small></h1>
     <div class="controls-grid" id="ctrlDesktop">
       <div><b>W A S D</b>Laufen</div><div><b>Maus</b>Umsehen, Linksklick feuert</div>
-      <div><b>1 · 2 · 3</b>Waffe wechseln</div><div><b>R</b>Nachladen</div>
-      <div><b>H · N</b>Helikopter · Nuke</div><div><b>Esc</b>Maus freigeben</div>
+      <div><b>1 · 2 · 3 / Mausrad</b>Waffe wechseln</div><div><b>R</b>Nachladen</div>
+      <div><b>H · N</b>Helikopter · Nuke</div><div><b>Tab</b>Waffenrad</div>
     </div>
     <div class="controls-grid" id="ctrlTouch" hidden>
       <div><b>Linker Stick</b>Laufen</div><div><b>Rechter Stick</b>Zielen und feuern</div>
-      <div><b>Wischen</b>Kamera drehen</div><div><b>R</b>Nachladen</div>
+      <div><b>Wischen</b>Kamera drehen</div><div><b>⚙</b>Waffenrad</div>
     </div>
     <div class="options">
       <label class="opt"><span>Sound</span><input type="checkbox" id="optSound" checked></label>
@@ -97,7 +109,6 @@
     <button class="secondary" id="btnFull">Vollbild</button>
   </div>
 </div>
-
 <div class="screen" id="endScreen" hidden>
   <div class="sheet">
     <div class="end-result" id="endTitle">Sieg</div>
@@ -110,7 +121,6 @@
     <button class="primary" id="btnAgain">Nochmal</button>
   </div>
 </div>
-
 <script type="importmap">{"imports":{"three":"https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js"}}</script>
 <script type="module" src="game.js"></script>
 </body>

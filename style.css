@@ -105,15 +105,28 @@ canvas#gl{position:fixed;inset:0;display:block}
 #killfeed .b{color:var(--blue)}#killfeed .r{color:var(--red)}
 @keyframes feedIn{from{opacity:0;transform:translateX(-10px)}}
 
-#crosshair{position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+#crosshair{position:absolute;left:50%;top:50%;width:48px;height:48px;transform:translate(-50%,-50%);filter:drop-shadow(0 0 3px rgba(0,0,0,.5))}
 #crosshair svg{width:100%;height:100%;overflow:visible}
-#crosshair .ring{stroke:rgba(232,220,184,.9);stroke-width:1.5;fill:none}
-#crosshair .tick{stroke:rgba(232,220,184,.9);stroke-width:2}
+#crosshair .ring{stroke:rgba(255,240,200,.7);stroke-width:1.2;fill:none}
+#crosshair .outer{stroke:rgba(232,220,184,.25);stroke-width:.8;fill:none}
+#crosshair .tick{stroke:rgba(255,240,200,.9);stroke-width:2;stroke-linecap:round}
+#crosshair .dot{filter:drop-shadow(0 0 2px rgba(255,240,200,.6))}
 #crosshair .hit{stroke:var(--paper);stroke-width:3;opacity:0;transform-origin:center;transform:scale(1.4)}
 #crosshair.hit .hit{animation:hitmark .22s cubic-bezier(.2,.9,.3,1) both}
 #crosshair.kill .hit{stroke:var(--signal)}
 @keyframes hitmark{0%{opacity:1;transform:scale(1.5)}100%{opacity:0;transform:scale(1)}}
 #crosshair.hidden{opacity:0}
+
+/* ---------- Radiales Waffenrad ---------- */
+#weaponWheel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;width:240px;height:240px;pointer-events:none;opacity:0;visibility:hidden;transition:opacity .15s,visibility .15s}
+#weaponWheel.open{opacity:1;visibility:visible;pointer-events:auto}
+.ww-ring{position:relative;width:100%;height:100%}
+.ww-slot{position:absolute;left:50%;top:50%;width:80px;height:80px;margin:-40px 0 0 -40px;transform:rotate(var(--angle)) translateY(-82px) rotate(calc(-1*var(--angle)));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:var(--ink-80);border:2px solid rgba(232,220,184,.3);border-radius:50%;color:var(--paper-dim);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);cursor:pointer;transition:transform .12s,background .12s,border-color .12s,color .12s}
+.ww-slot svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ww-slot.hover,.ww-slot:hover{background:var(--paper);color:var(--ink);border-color:var(--amber);transform:rotate(var(--angle)) translateY(-82px) rotate(calc(-1*var(--angle))) scale(1.12)}
+.ww-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;background:var(--ink-80);border:2px solid var(--amber);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--amber);letter-spacing:.05em;text-transform:uppercase}
+#btnWeaponWheel{position:absolute;right:calc(14px + var(--safe-r));bottom:calc(90px + var(--safe-b));width:52px;height:52px;font-size:22px;z-index:26;pointer-events:auto;display:none}
+@media (pointer:coarse){#btnWeaponWheel{display:flex}}
 
 #center{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);text-align:center;width:100%}
 #center h2{font-family:var(--display);font-size:clamp(30px,7vw,56px);color:var(--signal);text-transform:uppercase;line-height:1;text-shadow:0 3px 14px rgba(0,0,0,.7)}
