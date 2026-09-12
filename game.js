@@ -364,7 +364,7 @@ function animateCharacter(g,dt,o){
 /* ======================================================================
    SPIELZUSTAND, WAFFEN, ENTITÄTEN
    ====================================================================== */
-const GOAL=30;
+let GOAL=30;   // im Startmenue einstellbar, 10 bis 200
 const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
@@ -1176,10 +1176,14 @@ function startMatch(){
   Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.sens=+$('optSens').value;
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });
+  GOAL=Math.max(10,Math.min(200,+$('optGoal').value||30));
   resetMatch(); state.phase='play'; $('startScreen').hidden=true; $('endScreen').hidden=true; UI.hud.hidden=false; $('touch').hidden=!isTouch; $('goalN').textContent=GOAL;
   if(!isTouch){ $('hint').textContent='Klick ins Spiel, um die Maus zu binden'; $('hint').classList.add('show'); canvas.requestPointerLock?.(); }
   UI.toast('Gefecht läuft');
 }
+// Die Punktegrenze im Untertitel mitschreiben, damit man vor dem Start sieht, worauf gespielt wird
+(()=>{ const sel=$('optGoal'), hint=$('goalHint'); if(!sel||!hint) return;
+  const zeigen=()=>{ hint.textContent=sel.value; }; sel.addEventListener('change',zeigen); zeigen(); })();
 $('btnStart').addEventListener('click',startMatch); $('btnAgain').addEventListener('click',startMatch);
 $('btnFull').addEventListener('click',()=>{ const el=document.documentElement; (el.requestFullscreen||el.webkitRequestFullscreen)?.call(el); screen.orientation?.lock?.('landscape').catch(()=>{}); });
 $('ctrlDesktop').hidden=isTouch; $('ctrlTouch').hidden=!isTouch; if(isTouch) $('btnFull').textContent='Vollbild (empfohlen)';
