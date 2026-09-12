@@ -204,7 +204,7 @@ const BODY_H=3.5, CLIMB_MAX=BODY_H*1.5, STEP_UP=.7, GRAVITY=26, JUMP_V=9.2;
 // Sprint: 10 Sekunden bis leer, 7 Sekunden bis wieder voll
 const SPRINT_DRAIN=1/10, SPRINT_REGEN=1/7, SPRINT_MULT=1.45, SPRINT_WIEDER=.25;
 // Ducken: die Figur wird um ein Drittel kleiner (3.5 -> 2.33), Tempo halbiert
-const HOCKE_DROP=BODY_H/3, HOCKE_MULT=.5;
+const HOCKE_DROP=BODY_H/3, HOCKE_MULT=.5, HOCKE_NEIGE=1.05;
 function blocked(x,z,r){
   if(x<-HALF+2.2||x>HALF-2.2||z<-HALF+2.2||z>HALF-2.2) return true;
   for(const o of obstacles){ if(x>o.x-o.w/2-r&&x<o.x+o.w/2+r&&z>o.z-o.d/2-r&&z<o.z+o.d/2+r) return true; }
@@ -320,15 +320,17 @@ function animateCharacter(g,dt,o){
   // In der Luft: Beine anziehen. Beim Hochziehen: greifen und nachziehen.
   u.air+=((o.air?1:0)-u.air)*Math.min(1,dt*12);
   const air=u.air, reach=Math.sin(Math.min(1,o.mantle||0)*Math.PI);
-  // Ducken: Oberkörper runter, Beine gestaucht und angewinkelt – zusammen ein Drittel weniger Höhe
+  // Ducken: Gesäß nach hinten, Oberkörper weit nach vorn, Beine nach vorn angewinkelt –
+  // von der Seite ein liegendes V mit dem Knick hinten und Kopf und Füßen vorn.
   u.hocke+=((o.crouch||0)-u.hocke)*Math.min(1,dt*12);
-  const c=u.hocke;
-  u.upper.position.y=1.45-HOCKE_DROP*c;
-  u.hipL.position.y=u.hipR.position.y=1.5-.5*c;
-  const beinSkal=1-.35*c;
+  const c=u.hocke, neige=HOCKE_NEIGE*c;
+  u.upper.position.y=1.45-.70*c; u.upper.position.z=-.40*c;
+  u.hipL.position.y=u.hipR.position.y=1.5-.70*c;
+  u.hipL.position.z=u.hipR.position.z=-.42*c;
+  const beinSkal=1-.22*c;
   u.legL.scale.y=u.legR.scale.y=beinSkal; u.legL.position.y=u.legR.position.y=-.5*beinSkal;
-  u.hipL.rotation.x=u.hipLBase*(1-.5*c)-.55*air-1.15*reach+.4*c;
-  u.hipR.rotation.x=u.hipRBase*(1-.5*c)-.2*air-.7*reach+.4*c;
+  u.hipL.rotation.x=u.hipLBase*(1-.6*c)-.55*air-1.15*reach-1.15*c;
+  u.hipR.rotation.x=u.hipRBase*(1-.6*c)-.2*air-.7*reach-1.15*c;
 
   // Rückstoß: Tempo kommt von der Waffe, damit jeder Schuss ein eigener Impuls bleibt
   u.recoil=Math.max(0,u.recoil-dt*(u.recoilRate||8));
@@ -347,17 +349,17 @@ function animateCharacter(g,dt,o){
   const ap=o.pitch||0;
   const lean=Math.cos(u.walk*2)*.018*u.amp - rl*.05;
   u.lean+=(lean-u.lean)*Math.min(1,dt*20);
-  u.upper.rotation.x=u.lean-r*.045-ap*.25+.12*air+.4*reach+.22*c;
+  u.upper.rotation.x=u.lean-r*.045-ap*.25+.12*air+.4*reach+neige;
   u.upper.rotation.z=-s*.05*u.amp;
   u.neck.rotation.y=-u.upper.rotation.y*.3;
-  u.neck.rotation.x=-ap*.2;
+  u.neck.rotation.x=-ap*.2-neige*.45;
 
   // Arme schwingen gegenläufig zu den Beinen, aber gedämpft – die Waffe bleibt im Anschlag
   const armSwing=-s*.2*u.amp;
   u.armRBase+=((armSwing + rl*.35 + dip*.5)-u.armRBase)*Math.min(1,dt*24);
   u.armLBase+=((armSwing*.5 + rl*.8 + dip*.3)-u.armLBase)*Math.min(1,dt*24);
-  u.armR.rotation.x=u.armRBase-r*.24-ap*.75-.45*air-1.5*reach;
-  u.armL.rotation.x=u.armLBase-r*.14-ap*.6-.65*air-1.9*reach;
+  u.armR.rotation.x=u.armRBase-r*.24-ap*.75-.45*air-1.5*reach-neige;
+  u.armL.rotation.x=u.armLBase-r*.14-ap*.6-.65*air-1.9*reach-neige;
   u.armL.rotation.z=rl*.45;
 
   // Waffe folgt dem Arm und bekommt oben drauf Rückstoß, Nachladen, Waffenwechsel
