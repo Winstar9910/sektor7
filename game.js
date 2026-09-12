@@ -381,7 +381,7 @@ const weapons={
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff}
 };
-const state={ phase:'menu', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0, shakeRate:6 };
+const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0, shakeRate:6 };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
@@ -503,7 +503,9 @@ function damage(target,amount,attacker){
   if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
     if(target===player){ player.deaths++; player.streak=0; UI.streak(); UI.death(attacker); }
     if(attacker===player){ player.kills++; player.streak++; player.bestStreak=Math.max(player.bestStreak,player.streak); UI.streak(); if(player.streak===3) UI.toast('Helikopter bereit'); if(player.streak===7) UI.toast('Nuke bereit'); }
-    const scoringTeam= target.team==='red'?'blue':'red'; if(attacker && attacker.team!==target.team){ state.score[scoringTeam]++; UI.score(); UI.feed(attacker,target); if(state.score[scoringTeam]>=GOAL) endMatch(scoringTeam==='blue'); }
+    const scoringTeam= target.team==='red'?'blue':'red';
+    if(attacker && attacker.team!==target.team){ UI.feed(attacker,target);
+      if(state.mode!=='flag'){ state.score[scoringTeam]++; UI.score(); if(state.score[scoringTeam]>=GOAL) endMatch(scoringTeam==='blue'); } }
     return true;
   }
   return false;
@@ -557,20 +559,30 @@ function updateBots(dt){
     bot.shootTimer-=dt; bot.targetTimer-=dt; bot.pathTimer-=dt; bot.strafeTimer-=dt;
     if(bot.targetTimer<=0){ bot.target=findTarget(bot); bot.targetTimer=.3+Math.random()*.2; }
     const t=bot.target; bot.moving=false; bot.curSpeed=0;
+    // Im Flaggenmodus laufen die Bots zur Flagge statt auf den Gegner zu.
+    // Geschossen wird trotzdem – zur Verteidigung und um den Weg frei zu bekommen.
+    const zielP = state.mode==='flag'? botFlagZiel(bot) : null;
+    // Weg zu einem Punkt suchen und den nächsten Wegpunkt als Richtung liefern
+    const laufeZu=(gx,gz)=>{
+      let mvx=0,mvz=0;
+      if(bot.pathTimer<=0||bot.path.length===0||bot.pathIndex>=bot.path.length||Math.hypot(gx-bot.pathTargetX,gz-bot.pathTargetZ)>4){
+        bot.path=findPath(bot.x,bot.z,gx,gz); bot.pathIndex=bot.path.length>1?1:0;
+        bot.pathTargetX=gx; bot.pathTargetZ=gz; bot.pathTimer=.5+Math.random()*.3; }
+      if(bot.path.length>1&&bot.pathIndex<bot.path.length){ const wp=bot.path[bot.pathIndex]; const wx=wp.x-bot.x,wz=wp.z-bot.z,wd=Math.hypot(wx,wz); if(wd<1.2) bot.pathIndex++; else { mvx=wx/wd; mvz=wz/wd; } }
+      else { const wx=gx-bot.x, wz=gz-bot.z, wd=Math.hypot(wx,wz); if(wd>1.6){ mvx=wx/wd; mvz=wz/wd; } }
+      return [mvx,mvz];
+    };
     if(t&&t.alive){
       const dx=t.x-bot.x,dz=t.z-bot.z,dist=Math.hypot(dx,dz);
       const ty=(t.y||0)+2.1, dy=ty-2.25;
       const los=hasLOS3(bot.x,2.25,bot.z,t.x,ty,t.z);
       let mvx=0,mvz=0;
-      if(los&&dist<24){ // im Gefecht: Abstand halten und seitlich ausweichen
+      if(los&&dist<(zielP?9:24)){ // im Nahkampf: Abstand halten und seitlich ausweichen
         if(bot.strafeTimer<=0){ bot.strafeDir=Math.random()<.5?-1:1; bot.strafeTimer=.8+Math.random()*1.4; }
         const nx=dx/dist,nz=dz/dist; mvx=-nz*bot.strafeDir*.8; mvz=nx*bot.strafeDir*.8; if(dist<7){ mvx-=nx*.7; mvz-=nz*.7; } else if(dist>18){ mvx+=nx*.5; mvz+=nz*.5; }
         bot.path=[];
-      } else {
-        if(bot.pathTimer<=0||bot.path.length===0||bot.pathIndex>=bot.path.length||Math.hypot(t.x-bot.pathTargetX,t.z-bot.pathTargetZ)>4){ bot.path=findPath(bot.x,bot.z,t.x,t.z); bot.pathIndex=bot.path.length>1?1:0; bot.pathTargetX=t.x; bot.pathTargetZ=t.z; bot.pathTimer=.5+Math.random()*.3; }
-        if(bot.path.length>1&&bot.pathIndex<bot.path.length){ const wp=bot.path[bot.pathIndex]; const wx=wp.x-bot.x,wz=wp.z-bot.z,wd=Math.hypot(wx,wz); if(wd<1.2) bot.pathIndex++; else { mvx=wx/wd; mvz=wz/wd; } }
-        else if(dist>3){ mvx=dx/dist; mvz=dz/dist; }
-      }
+      } else if(zielP){ [mvx,mvz]=laufeZu(zielP.x,zielP.z); }
+      else { [mvx,mvz]=laufeZu(t.x,t.z); if(!mvx&&!mvz&&dist>3){ mvx=dx/dist; mvz=dz/dist; } }
       if(mvx||mvz){ const l=Math.hypot(mvx,mvz); const ox=bot.x,oz=bot.z; moveEntity(bot,mvx/l*bot.speed*dt,mvz/l*bot.speed*dt);
         const gone=Math.hypot(bot.x-ox,bot.z-oz); bot.moving=gone>.001; bot.curSpeed= dt>0? gone/dt : 0; if(!bot.moving){ bot.path=[]; bot.pathTimer=0; } }
       bot.aimYaw=Math.atan2(dx,dz);
@@ -580,6 +592,15 @@ function updateBots(dt){
       bot.wantShoot = los&&dist<55&&bot.shootTimer<=0&&Math.abs(dyaw)<.5;
       bot.aimPitch = Math.atan2(dy,dist);
       bot.shootDir = bot.wantShoot? new THREE.Vector3(dx,dy,dz).normalize() : null;
+    } else if(zielP){   // kein Gegner in Sicht, aber die Flagge ruft
+      const [mvx,mvz]=laufeZu(zielP.x,zielP.z);
+      if(mvx||mvz){ const l=Math.hypot(mvx,mvz); const ox=bot.x,oz=bot.z; moveEntity(bot,mvx/l*bot.speed*dt,mvz/l*bot.speed*dt);
+        const gone=Math.hypot(bot.x-ox,bot.z-oz); bot.moving=gone>.001; bot.curSpeed= dt>0? gone/dt : 0;
+        bot.aimYaw=Math.atan2(mvx,mvz); }
+      const dyaw2=wrapAngle(bot.aimYaw-bot.faceYaw); bot.faceYaw+=dyaw2*Math.min(1,dt*8);
+      bot.twist=wrapAngle(bot.aimYaw-bot.faceYaw);
+      if(Math.abs(bot.twist)>MAX_TWIST){ bot.faceYaw+=bot.twist-Math.sign(bot.twist)*MAX_TWIST; bot.twist=Math.sign(bot.twist)*MAX_TWIST; }
+      bot.wantShoot=false; bot.aimPitch=0;
     } else { bot.curSpeed=0; bot.twist=wrapAngle(bot.aimYaw-bot.faceYaw); bot.wantShoot=false; bot.aimPitch=0; }
     // Erst die Figur stellen, dann feuern – die Kugel startet an der Laufspitze dieses Frames
     bot.mesh.position.x=bot.x; bot.mesh.position.z=bot.z; bot.mesh.rotation.y=bot.faceYaw;
@@ -947,6 +968,117 @@ function updatePlayer(dt){
 /* ======================================================================
    KAMERA
    ====================================================================== */
+/* ======================================================================
+   FLAGGEN-MODUS
+   Jede Seite hat hinter ihrem Spawn eine Flagge in ihrer Teamfarbe.
+   Wer durch die gegnerische Flagge läuft, nimmt sie automatisch mit.
+   Wer sie zur eigenen Flagge bringt, punktet. Die eigene Flagge kann
+   man nicht aufnehmen – man stellt eine liegende nur wieder zurück.
+   ====================================================================== */
+const FLAG_BASE={ blue:{x:0,z:48}, red:{x:0,z:-48} };
+const FLAG_GRAB=2.2, FLAG_HOME=2.8, FLAG_RETURN=25;
+const flags={};
+function buildFlagMesh(team){
+  const g=new THREE.Group();
+  const stange=new THREE.Mesh(new THREE.CylinderGeometry(.09,.12,4.2,10),
+    new THREE.MeshStandardMaterial({color:0x8a8f95,roughness:.5,metalness:.6}));
+  stange.position.y=2.1; stange.castShadow=true; g.add(stange);
+  const farbe= team==='blue'? 0x3d6db8 : 0xb33a2a;
+  const tuch=new THREE.Mesh(new THREE.PlaneGeometry(1.7,1.1),
+    new THREE.MeshStandardMaterial({color:farbe,roughness:.85,side:THREE.DoubleSide,
+      emissive:farbe,emissiveIntensity:.35}));
+  tuch.position.set(.9,3.45,0); tuch.castShadow=true; g.add(tuch);
+  const knauf=new THREE.Mesh(new THREE.SphereGeometry(.17,10,8),
+    new THREE.MeshStandardMaterial({color:0xe8dcb8,roughness:.4,metalness:.5}));
+  knauf.position.y=4.25; g.add(knauf);
+  const sockel=new THREE.Mesh(new THREE.CylinderGeometry(.75,.95,.25,14),
+    new THREE.MeshStandardMaterial({color:0x2a2c2e,roughness:.8}));
+  sockel.position.y=.12; sockel.receiveShadow=true; g.add(sockel);
+  g.userData.tuch=tuch; g.visible=false; scene.add(g);
+  return g;
+}
+function initFlags(){
+  for(const team of ['blue','red']){
+    if(!flags[team]) flags[team]={ team, mesh:buildFlagMesh(team) };
+    const f=flags[team], b=FLAG_BASE[team];
+    f.x=b.x; f.z=b.z; f.y=0; f.carrier=null; f.dropped=false; f.returnT=0;
+    f.mesh.visible= state.mode==='flag';
+    f.mesh.position.set(f.x,0,f.z); f.mesh.rotation.set(0,0,0); f.mesh.scale.setScalar(1);
+  }
+}
+const flagName=t=> t==='blue'?'Blau':'Rot';
+function flagPunkteZiel(){ return Math.max(1,Math.round(GOAL/10)); }
+// Welche gegnerische Flagge trägt dieser Spieler gerade?
+function traegtFlagge(e){ for(const t of ['blue','red']) if(flags[t]&&flags[t].carrier===e) return flags[t]; return null; }
+function flaggeHeim(f,grund){
+  const b=FLAG_BASE[f.team];
+  f.carrier=null; f.dropped=false; f.returnT=0; f.x=b.x; f.z=b.z; f.y=0;
+  if(grund) UI.toast(`${flagName(f.team)}e Flagge ${grund}`);
+}
+function flaggePunkt(e,f){
+  flaggeHeim(f,null);
+  state.score[e.team]++; UI.score(); Audio.click();
+  UI.toast(`${flagName(e.team)} punktet – ${state.score[e.team]} von ${flagPunkteZiel()}`);
+  if(state.score[e.team]>=flagPunkteZiel()) endMatch(e.team==='blue');
+}
+function updateFlags(dt){
+  if(state.mode!=='flag') return;
+  for(const team of ['blue','red']){
+    const f=flags[team];
+    if(f.carrier){
+      if(!f.carrier.alive){   // Träger gefallen: Flagge bleibt liegen
+        f.x=f.carrier.x; f.z=f.carrier.z; f.y=f.carrier.y||0;
+        f.carrier=null; f.dropped=true; f.returnT=FLAG_RETURN;
+        UI.toast(`${flagName(team)}e Flagge liegt im Feld`);
+      } else { f.x=f.carrier.x; f.z=f.carrier.z; f.y=f.carrier.y||0; }
+    } else if(f.dropped){
+      f.returnT-=dt;
+      if(f.returnT<=0) flaggeHeim(f,'ist zurück');
+    }
+    const m=f.mesh;
+    if(f.carrier){   // getragen: kleiner, schräg über der Schulter
+      const yaw=f.carrier.faceYaw||0;
+      m.position.set(f.x-Math.sin(yaw)*.55, f.y+1.0, f.z-Math.cos(yaw)*.55);
+      m.rotation.set(0,yaw,.5); m.scale.setScalar(.6);
+    } else {
+      m.position.set(f.x,f.y,f.z);
+      m.rotation.set(0,state.time*.5,0); m.scale.setScalar(1);
+    }
+  }
+  // Aufnehmen, Zurückstellen und Punkten
+  for(const e of [player,...bots]){
+    if(!e.alive) continue;
+    for(const team of ['blue','red']){
+      const f=flags[team];
+      const d=Math.hypot(e.x-f.x,e.z-f.z);
+      if(f.team!==e.team){
+        if(!f.carrier && d<FLAG_GRAB){
+          f.carrier=e; f.dropped=false; f.returnT=0;
+          UI.toast(e===player? 'Du hast die Flagge – bring sie heim' : `${flagName(e.team)} hat die Flagge`);
+          Audio.click();
+        }
+      } else if(!f.carrier && f.dropped && d<FLAG_GRAB){
+        flaggeHeim(f,'zurückgebracht');
+      }
+    }
+    const getragen=traegtFlagge(e);
+    if(getragen){
+      const b=FLAG_BASE[e.team];
+      if(Math.hypot(e.x-b.x,e.z-b.z)<FLAG_HOME) flaggePunkt(e,getragen);
+    }
+  }
+}
+// Wohin ein Bot im Flaggenmodus läuft. Geschossen wird davon unabhängig.
+function botFlagZiel(bot){
+  const gegner= bot.team==='blue'?'red':'blue';
+  const ef=flags[gegner], of=flags[bot.team];
+  if(ef.carrier===bot) return FLAG_BASE[bot.team];             // Flagge heimbringen
+  if(of.dropped && !of.carrier) return {x:of.x,z:of.z};        // eigene Flagge zurückholen
+  if(of.carrier) return {x:of.carrier.x,z:of.carrier.z};       // Träger verfolgen
+  if(ef.carrier) return {x:ef.carrier.x,z:ef.carrier.z};       // eigenen Träger begleiten
+  return {x:ef.x,z:ef.z};                                      // gegnerische Flagge holen
+}
+
 // Perspektivwechsel: die Blickrichtung bleibt, wo sie war – die Kamerarichtung
 // ist cam.yaw+PI, deshalb darf hier nicht der Blickwinkel der Figur zugewiesen werden.
 function toggleFpv(){ cam.fpv=!cam.fpv; if(!cam.fpv) cam.dist=9.5; }
@@ -1178,7 +1310,8 @@ function resetMatch(){
   if(nuke.group){ scene.remove(nuke.group); nuke.group=null; } nuke.active=false; UI.flash.style.opacity=0;
   // Alte Panzer entfernen und neue spawnen
   for(const t of tanks){ scene.remove(t.mesh); const oi=obstacles.indexOf(t.obstacle); if(oi>=0) obstacles.splice(oi,1); }
-  tanks.length=0; spawnTank('blue'); spawnTank('red');
+  tanks.length=0; if(state.mode!=='flag'){ spawnTank('blue'); spawnTank('red'); }
+  initFlags();
   UI.feedEl.innerHTML=''; UI.center.hidden=true; UI.hideCross(false); UI.score(); UI.streak(); UI.weapon(); UI.status(); UI.toast('');
 }
 function endMatch(win,reason){
@@ -1194,13 +1327,25 @@ function startMatch(){
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });
   GOAL=Math.max(10,Math.min(200,+$('optGoal').value||30));
-  resetMatch(); state.phase='play'; $('startScreen').hidden=true; $('endScreen').hidden=true; UI.hud.hidden=false; $('touch').hidden=!isTouch; $('goalN').textContent=GOAL;
+  resetMatch(); state.phase='play'; $('startScreen').hidden=true; $('endScreen').hidden=true; UI.hud.hidden=false; $('touch').hidden=!isTouch; $('goalN').textContent= state.mode==='flag'? flagPunkteZiel() : GOAL;
   if(!isTouch){ $('hint').textContent='Klick ins Spiel, um die Maus zu binden'; $('hint').classList.add('show'); canvas.requestPointerLock?.(); }
   UI.toast('Gefecht läuft');
 }
-// Die Punktegrenze im Untertitel mitschreiben, damit man vor dem Start sieht, worauf gespielt wird
-(()=>{ const sel=$('optGoal'), hint=$('goalHint'); if(!sel||!hint) return;
-  const zeigen=()=>{ hint.textContent=sel.value; }; sel.addEventListener('change',zeigen); zeigen(); })();
+// Modusauswahl und Untertitel: vor dem Start sieht man, worauf gespielt wird
+(()=>{ const sel=$('optGoal'), hint=$('goalHint'), einheit=$('goalUnit');
+  const zeigen=()=>{
+    const flagge= state.mode==='flag';
+    if(hint) hint.textContent= flagge? Math.max(1,Math.round((+sel.value||30)/10)) : (sel? sel.value : 30);
+    if(einheit) einheit.textContent= flagge? 'Flaggen' : 'Abschüssen';
+  };
+  if(sel) sel.addEventListener('change',zeigen);
+  document.querySelectorAll('.mode').forEach(b=>b.addEventListener('click',()=>{
+    state.mode=b.dataset.mode;
+    document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('on',x===b));
+    zeigen();
+  }));
+  zeigen();
+})();
 $('btnStart').addEventListener('click',startMatch); $('btnAgain').addEventListener('click',startMatch);
 $('btnFull').addEventListener('click',()=>{ const el=document.documentElement; (el.requestFullscreen||el.webkitRequestFullscreen)?.call(el); screen.orientation?.lock?.('landscape').catch(()=>{}); });
 $('ctrlDesktop').hidden=isTouch; $('ctrlTouch').hidden=!isTouch; if(isTouch) $('btnFull').textContent='Vollbild (empfohlen)';
@@ -1216,7 +1361,7 @@ let last=performance.now(), hudT=0;
 function frame(now){
   requestAnimationFrame(frame); const dt=Math.min((now-last)/1000,.05); last=now; state.time+=dt;
   if(state.phase==='play'||state.phase==='end'){
-    if(state.phase==='play'){ updateWeaponSwitch(dt); updatePlayer(dt); updateBots(dt); updateTanks(dt); }
+    if(state.phase==='play'){ updateWeaponSwitch(dt); updatePlayer(dt); updateBots(dt); updateTanks(dt); updateFlags(dt); }
     updateBullets(dt); updateEffects(dt); updateHeli(dt); updateBombs(dt); updateNuke(dt); updateCamera(dt);
     hudT+=dt; if(hudT>.1){ hudT=0; const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
   } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,dt,{})); }
