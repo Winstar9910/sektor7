@@ -658,7 +658,7 @@ const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false, aimHeld
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
-  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.aimYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } }
+  if(e.code==='KeyV') toggleFpv();
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
@@ -710,7 +710,7 @@ if(wwEl){
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
-$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.aimYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } });
+$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
@@ -753,7 +753,8 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.mesh.visible=true; cam.yaw=Math.atan2(-P.x,-P.z); P.faceYaw=P.aimYaw=P.moveYaw=cam.yaw; UI.respawn(); UI.status(); }
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.mesh.visible=true;
+      const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
   P.shootTimer-=dt;
@@ -824,6 +825,9 @@ function updatePlayer(dt){
 /* ======================================================================
    KAMERA
    ====================================================================== */
+// Perspektivwechsel: die Blickrichtung bleibt, wo sie war – die Kamerarichtung
+// ist cam.yaw+PI, deshalb darf hier nicht der Blickwinkel der Figur zugewiesen werden.
+function toggleFpv(){ cam.fpv=!cam.fpv; if(!cam.fpv) cam.dist=9.5; }
 const camTarget=new THREE.Vector3(), camPos=new THREE.Vector3(), camLook=new THREE.Vector3(), camLookTarget=new THREE.Vector3();
 function updateCamera(dt){
   const P=player;
