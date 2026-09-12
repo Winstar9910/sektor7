@@ -555,7 +555,7 @@ const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
-  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv) cam.dist=9.5; }
+  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } }
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
@@ -604,7 +604,7 @@ if(wwEl){
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
-$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; cam.pitch=.12; if(!cam.fpv) cam.dist=9.5; });
+$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv){ cam.dist=9.5; cam.pitch=.12; } });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
@@ -678,33 +678,36 @@ function updatePlayer(dt){
 const camTarget=new THREE.Vector3(), camPos=new THREE.Vector3(), camLook=new THREE.Vector3(), camLookTarget=new THREE.Vector3();
 function updateCamera(dt){
   const P=player;
-  // Kamera folgt automatisch der Blickrichtung des Spielers
-  let yawDiff=P.faceYaw-cam.yaw; yawDiff=Math.atan2(Math.sin(yawDiff),Math.cos(yawDiff));
-  cam.yaw+=yawDiff*Math.min(1,dt*5);
+  // Kamera dreht NUR beim Zielen/Schiessen mit (nicht beim Laufen!)
+  if(input.aimStick||input.fire){
+    let yd=P.faceYaw-cam.yaw; yd=Math.atan2(Math.sin(yd),Math.cos(yd));
+    cam.yaw+=yd*Math.min(1,dt*4);
+  }
   if(cam.fpv){
-    // Ego-Perspektive: Kamera auf Kopfhoehe
-    const fwd=-Math.sin(cam.yaw), fwdz=-Math.cos(cam.yaw);
-    camTarget.set(P.x-.3*fwd, 3.0, P.z-.3*fwdz);
+    // Ego-Perspektive: Kamera am Kopf, schaut nach vorn
+    const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw);
+    camTarget.set(P.x, 3.0, P.z);
     camPos.lerp(camTarget, 1-Math.pow(.00001,dt));
     camera.position.copy(camPos);
     const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
     if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12; camera.position.y+=(Math.random()-.5)*shake*.1; }
-    camLookTarget.set(P.x+fwd*8, 2.6, P.z+fwdz*8);
+    camLookTarget.set(P.x+fx*10, 2.8, P.z+fz*10);
     camLook.lerp(camLookTarget, 1-Math.pow(.00003,dt));
     camera.lookAt(camLook);
     P.mesh.visible=false;
   } else {
-    // Third-Person: hinter dem Spieler
+    // Third-Person: hinter dem Spieler, von oben
     const d=cam.dist, pitch=cam.pitch;
-    const aimOffX=-Math.sin(cam.yaw)*2.5, aimOffZ=-Math.cos(cam.yaw)*2.5;
     const cx=P.x+Math.sin(cam.yaw)*d*Math.cos(pitch), cz=P.z+Math.cos(cam.yaw)*d*Math.cos(pitch), cy=2.4+d*Math.sin(pitch)+2.2;
     let t=1; const sx=P.x,sz=P.z; for(let k=.15;k<=1;k+=.05){ const px=sx+(cx-sx)*k, pz=sz+(cz-sz)*k; if(blocked(px,pz,.5)){ t=Math.max(.15,k-.08); break; } }
     camTarget.set(sx+(cx-sx)*t, cy*(.6+.4*t), sz+(cz-sz)*t);
     camPos.lerp(camTarget, 1-Math.pow(.00005,dt));
     const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
     camera.position.copy(camPos); if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.22; camera.position.y+=(Math.random()-.5)*shake*.18; }
-    camLookTarget.set(P.x+aimOffX, 2.2, P.z+aimOffZ);
-    camLook.lerp(camLookTarget, 1-Math.pow(.00006,dt));
+    // Blickpunkt: leicht vor dem Spieler
+    const aimX=-Math.sin(cam.yaw)*3, aimZ=-Math.cos(cam.yaw)*3;
+    camLookTarget.set(P.x+aimX, 2.2, P.z+aimZ);
+    camLook.lerp(camLookTarget, 1-Math.pow(.00008,dt));
     camera.lookAt(camLook);
     P.mesh.visible=P.invincible<=0||Math.sin(state.time*30)>0;
   }

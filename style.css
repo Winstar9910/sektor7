@@ -125,8 +125,7 @@ canvas#gl{position:fixed;inset:0;display:block}
 .ww-slot svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .ww-slot.hover,.ww-slot:hover{background:var(--paper);color:var(--ink);border-color:var(--amber);transform:rotate(var(--angle)) translateY(-82px) rotate(calc(-1*var(--angle))) scale(1.12)}
 .ww-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;background:var(--ink-80);border:2px solid var(--amber);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--amber);letter-spacing:.05em;text-transform:uppercase}
-#btnWeaponWheel{position:absolute;right:calc(14px + var(--safe-r));bottom:calc(90px + var(--safe-b));width:52px;height:52px;font-size:22px;z-index:26;pointer-events:auto;display:none}
-@media (pointer:coarse){#btnWeaponWheel{display:flex}}
+
 
 #center{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);text-align:center;width:100%}
 #center h2{font-family:var(--display);font-size:clamp(30px,7vw,56px);color:var(--signal);text-transform:uppercase;line-height:1;text-shadow:0 3px 14px rgba(0,0,0,.7)}
@@ -171,7 +170,10 @@ canvas#gl{position:fixed;inset:0;display:block}
   #ammoRow{margin-top:0;gap:4px;padding-left:10px;border-left:1px solid rgba(232,220,184,.2)}
   #ammoRow strong{font-size:24px} #ammoRow span{font-size:12px}
   #reloadTag{top:auto;bottom:-28px;left:8px;font-size:12px}
-  #weaponBar{display:none}
+  #weaponBar{top:calc(10px + var(--safe-t));right:calc(12px + var(--safe-r));gap:4px}
+  .wpn{min-width:0;padding:5px 10px;font-size:12px;background:var(--ink-60)}
+  .wpn kbd{display:none}
+  .wpn.active{background:var(--paper)}
   #streakBox{transform:translateX(-50%) scale(.82);transform-origin:bottom center}
   #toast{top:36%;font-size:clamp(16px,3.2vw,22px)}
   #killfeed div:nth-child(n+4){display:none}
