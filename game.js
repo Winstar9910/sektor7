@@ -301,18 +301,21 @@ function animateCharacter(g,dt,o){
   if(o.snap) u.upper.rotation.y=tw; else u.upper.rotation.y+=(tw-u.upper.rotation.y)*Math.min(1,dt*24);
   // Laufbewegung wird weich nachgezogen, der Rückstoß kommt hart obendrauf –
   // sonst würde die Glättung genau den Schlag wegbügeln, den man sehen soll.
+  // Zielneigung: ein Viertel macht der Oberkörper, den Rest der Arm – zusammen genau der Blickwinkel
+  const ap=o.pitch||0;
   const lean=Math.cos(u.walk*2)*.018*u.amp - rl*.05;
   u.lean+=(lean-u.lean)*Math.min(1,dt*20);
-  u.upper.rotation.x=u.lean-r*.045;
+  u.upper.rotation.x=u.lean-r*.045-ap*.25;
   u.upper.rotation.z=-s*.05*u.amp;
   u.neck.rotation.y=-u.upper.rotation.y*.3;
+  u.neck.rotation.x=-ap*.2;
 
   // Arme schwingen gegenläufig zu den Beinen, aber gedämpft – die Waffe bleibt im Anschlag
   const armSwing=-s*.2*u.amp;
   u.armRBase+=((armSwing + rl*.35 + dip*.5)-u.armRBase)*Math.min(1,dt*24);
   u.armLBase+=((armSwing*.5 + rl*.8 + dip*.3)-u.armLBase)*Math.min(1,dt*24);
-  u.armR.rotation.x=u.armRBase-r*.24;
-  u.armL.rotation.x=u.armLBase-r*.14;
+  u.armR.rotation.x=u.armRBase-r*.24-ap*.75;
+  u.armL.rotation.x=u.armLBase-r*.14-ap*.6;
   u.armL.rotation.z=rl*.45;
 
   // Waffe folgt dem Arm und bekommt oben drauf Rückstoß, Nachladen, Waffenwechsel
@@ -413,7 +416,7 @@ function fire(shooter,dir3,muzzle){
   if(mp){
     muzzle=mp.clone();
     const conv=Math.min(w.range,32);
-    dir3=new THREE.Vector3(shooter.x+dir3.x*conv-mp.x, 0, shooter.z+dir3.z*conv-mp.z).normalize();
+    dir3=new THREE.Vector3(shooter.x+dir3.x*conv-mp.x, dir3.y*conv, shooter.z+dir3.z*conv-mp.z).normalize();
   }
   for(let i=0;i<w.pellets;i++){
     const d=dir3.clone(); if(w.spread){ d.x+=(Math.random()-.5)*w.spread*2; d.y+=(Math.random()-.5)*w.spread*1.2; d.z+=(Math.random()-.5)*w.spread*2; } d.normalize();
@@ -665,7 +668,7 @@ addEventListener('blur',()=>{ input.keys={}; input.fire=false; });
 // Maus
 canvas.addEventListener('mousedown',e=>{ if(state.phase!=='play'||isTouchPointer) return; if(document.pointerLockElement!==canvas){ canvas.requestPointerLock(); return; } if(e.button===0) input.fire=true; });
 addEventListener('mouseup',e=>{ if(e.button===0) input.fire=false; });
-addEventListener('mousemove',e=>{ if(document.pointerLockElement===canvas){ const s=state.sens*.00022; cam.yaw-=e.movementX*s; cam.pitch=Math.max(-.35,Math.min(.6,cam.pitch+e.movementY*s*.8)); } });
+addEventListener('mousemove',e=>{ if(document.pointerLockElement===canvas){ const s=state.sens*.00022; cam.yaw-=e.movementX*s; cam.pitch=Math.max(-PITCH_MAX,Math.min(PITCH_MAX,cam.pitch+e.movementY*s*.8)); } });
 document.addEventListener('pointerlockchange',()=>{ $('hint').classList.toggle('show', state.phase==='play'&&!isTouch&&document.pointerLockElement!==canvas); });
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 let isTouchPointer=false;
@@ -681,12 +684,13 @@ function joystick(el,cb){
 }
 joystick($('joyMove'),(x,y)=>{ input.mx=x; input.mz=y; });
 const AIM_DEADZONE=.35;   // darunter gilt: geradeaus ins Fadenkreuz
+const PITCH_MAX=1.5;      // knapp senkrecht nach oben bzw. unten (nicht ganz 90°, sonst kippt die Kamera)
 let aimRef=null;          // Blickrichtung, auf die sich der gedrückte Stick bezieht
 joystick($('joyAim'),(x,y,on)=>{ input.ax=x; input.az=y; input.aimHeld=on; input.aimStick=on&&Math.hypot(x,y)>AIM_DEADZONE; });
 // Wischen zum Umsehen (Touch oder Maus ohne Pointer Lock)
 let swipe=null;
 canvas.addEventListener('pointerdown',e=>{ if(e.pointerType==='touch') isTouchPointer=true; if(state.phase!=='play') return; if(e.pointerType==='mouse'&&document.pointerLockElement===canvas) return; swipe={id:e.pointerId,x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointermove',e=>{ if(!swipe||e.pointerId!==swipe.id) return; const dx=e.clientX-swipe.x, dy=e.clientY-swipe.y; swipe.x=e.clientX; swipe.y=e.clientY; const s=state.sens*.0011; cam.yaw-=dx*s; if(aimRef!==null) aimRef-=dx*s; cam.pitch=Math.max(-.35,Math.min(.6,cam.pitch+dy*s*.5)); });
+canvas.addEventListener('pointermove',e=>{ if(!swipe||e.pointerId!==swipe.id) return; const dx=e.clientX-swipe.x, dy=e.clientY-swipe.y; swipe.x=e.clientX; swipe.y=e.clientY; const s=state.sens*.0011; cam.yaw-=dx*s; if(aimRef!==null) aimRef-=dx*s; cam.pitch=Math.max(-PITCH_MAX,Math.min(PITCH_MAX,cam.pitch-dy*s*.6)); });
 const endSwipe=e=>{ if(swipe&&e.pointerId===swipe.id) swipe=null; };
 canvas.addEventListener('pointerup',endSwipe); canvas.addEventListener('pointercancel',endSwipe);
 // Buttons
@@ -737,7 +741,13 @@ const aimDir=new THREE.Vector3();
 function aimAssist(dir){
   if(!state.assist) return dir; let best=null,ba=.22;
   for(const b of bots){ if(!b.alive||b.team===player.team) continue; const dx=b.x-player.x,dz=b.z-player.z,d=Math.hypot(dx,dz); if(d>45) continue; const a=Math.acos(Math.max(-1,Math.min(1,(dx*dir.x+dz*dir.z)/d))); if(a<ba&&hasLOS(player.x,player.z,b.x,b.z)){ ba=a; best=b; } }
-  if(best){ const t=new THREE.Vector3(best.x-player.x,0,best.z-player.z).normalize(); dir.lerp(t,.85).normalize(); }
+  if(best){
+    // nur die waagerechte Richtung korrigieren, die Blickneigung bleibt unangetastet
+    const y=dir.y, h=new THREE.Vector3(dir.x,0,dir.z).normalize();
+    const t=new THREE.Vector3(best.x-player.x,0,best.z-player.z).normalize();
+    h.lerp(t,.85).normalize(); const hs=Math.sqrt(Math.max(0,1-y*y));
+    dir.set(h.x*hs,y,h.z*hs).normalize();
+  }
   return dir;
 }
 function updatePlayer(dt){
@@ -781,6 +791,9 @@ function updatePlayer(dt){
   }
   else { aimRef=null; if(input.fire){ aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)); wantFire=true; } }
 
+  // Geschossen wird dorthin, wo geschaut wird – auch nach oben und unten
+  if(wantFire){ const sp=-cam.pitch, cp=Math.cos(sp); aimDir.set(aimDir.x*cp, Math.sin(sp), aimDir.z*cp).normalize(); }
+
   // Zielrichtung führt, die Beine ziehen nach. Der Oberkörper überbrückt die Differenz,
   // deshalb zeigt die Waffe immer exakt dorthin, wo die Kugel hinfliegt.
   if(wantFire) P.aimYaw=Math.atan2(aimDir.x,aimDir.z);
@@ -793,7 +806,7 @@ function updatePlayer(dt){
   // Pose zuerst setzen, danach schießen – so passt die Laufspitze zum Schuss desselben Frames
   P.mesh.position.x=P.x; P.mesh.position.z=P.z; P.mesh.rotation.y=P.faceYaw;
   const rlProg= P.reloading>0? 1-P.reloading/weapons[P.weapon].reload : 0;
-  animateCharacter(P.mesh,dt,{moving,speed:realSpeed,twist:tw,snap:wantFire,dip:weaponSwitch.dip,reload:rlProg});
+  animateCharacter(P.mesh,dt,{moving,speed:realSpeed,twist:tw,snap:wantFire,dip:weaponSwitch.dip,reload:rlProg,pitch:-cam.pitch});
   if(P.mesh.userData.stepped) Audio.step();   // Schrittton genau beim sichtbaren Fußaufsatz
 
   const w=weapons[P.weapon];
@@ -823,22 +836,27 @@ function updateCamera(dt){
     camera.position.copy(camPos);
     const shake=state.shake; state.shake=Math.max(0,shake-dt*(state.shakeRate||6));
     if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12; camera.position.y+=(Math.random()-.5)*shake*.1; }
-    camLookTarget.set(P.x+fx*10, 2.8, P.z+fz*10);
+    const cp=Math.cos(cam.pitch), sp=Math.sin(cam.pitch);
+    camLookTarget.set(P.x+fx*10*cp, 3.0-10*sp, P.z+fz*10*cp);
     camLook.copy(camLookTarget);
     camera.lookAt(camLook);
     P.mesh.visible=false;
   } else {
     // Third-Person: hinter dem Spieler, von oben
     const d=cam.dist, pitch=cam.pitch;
-    const cx=P.x+Math.sin(cam.yaw)*d*Math.cos(pitch), cz=P.z+Math.cos(cam.yaw)*d*Math.cos(pitch), cy=2.4+d*Math.sin(pitch)+2.2;
+    const cp=Math.cos(pitch), sp=Math.sin(pitch), PIV=2.6;
+    let cx=P.x+Math.sin(cam.yaw)*d*cp, cz=P.z+Math.cos(cam.yaw)*d*cp, cy=PIV+1.9*cp+d*sp;
     let t=1; const sx=P.x,sz=P.z; for(let k=.15;k<=1;k+=.05){ const px=sx+(cx-sx)*k, pz=sz+(cz-sz)*k; if(blocked(px,pz,.5)){ t=Math.max(.15,k-.08); break; } }
-    camTarget.set(sx+(cx-sx)*t, cy*(.6+.4*t), sz+(cz-sz)*t);
+    let tx=sx+(cx-sx)*t, tz=sz+(cz-sz)*t, ty=Math.max(.8, PIV+(cy-PIV)*t);
+    // Bei steiler Neigung rueckt die Kamera sonst in die Figur – Mindestabstand halten
+    const hd=Math.hypot(tx-sx,tz-sz);
+    if(hd<2.2&&ty<5.2){ const bx=Math.sin(cam.yaw), bz=Math.cos(cam.yaw); tx=sx+bx*2.2; tz=sz+bz*2.2; }
+    camTarget.set(tx,ty,tz);
     camPos.lerp(camTarget, 1-Math.pow(1e-8,dt));
     const shake=state.shake; state.shake=Math.max(0,shake-dt*(state.shakeRate||6));
     camera.position.copy(camPos); if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.18; camera.position.y+=(Math.random()-.5)*shake*.15; }
     // Blickpunkt ohne Verzoegerung: das Fadenkreuz zeigt exakt dorthin, wo die Kugel hinfliegt
-    const aimX=-Math.sin(cam.yaw)*3, aimZ=-Math.cos(cam.yaw)*3;
-    camLookTarget.set(P.x+aimX, 2.2, P.z+aimZ);
+    camLookTarget.set(P.x-Math.sin(cam.yaw)*3*cp, PIV-3*sp, P.z-Math.cos(cam.yaw)*3*cp);
     camLook.copy(camLookTarget);
     camera.lookAt(camLook);
     P.mesh.visible=P.invincible<=0||Math.sin(state.time*30)>0;
