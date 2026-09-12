@@ -255,7 +255,7 @@ const weapons={
 const state={ phase:'menu', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0 };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, stepT:0, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
-const cam={ yaw:0, pitch:.12, dist:9.5 };
+const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 
 const bots=[];
 const NAMES={blue:['Falke','Anker','Kolibri','Nordwind','Basalt'], red:['Wespe','Schakal','Kobra','Sandsturm','Granit','Zyklon']};
@@ -555,6 +555,7 @@ const input={ mx:0,mz:0, ax:0,az:0, fire:false, keys:{}, aimStick:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
+  if(e.code==='KeyV'){ cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; if(!cam.fpv) cam.dist=9.5; }
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
@@ -603,7 +604,7 @@ if(wwEl){
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
-$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.yaw=player.faceYaw; cam.pitch=.12; });
+$('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); cam.fpv=!cam.fpv; cam.yaw=player.faceYaw; cam.pitch=.12; if(!cam.fpv) cam.dist=9.5; });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
@@ -668,7 +669,7 @@ function updatePlayer(dt){
   }
   if(!wantFire) P.firedHeld=false;
   P.mesh.position.set(P.x,0,P.z); P.mesh.rotation.y=P.faceYaw; animateCharacter(P.mesh,moving,dt);
-  P.mesh.visible= P.invincible<=0 || Math.sin(state.time*30)>0;
+  if(!cam.fpv) P.mesh.visible= P.invincible<=0 || Math.sin(state.time*30)>0;
 }
 
 /* ======================================================================
@@ -676,18 +677,37 @@ function updatePlayer(dt){
    ====================================================================== */
 const camTarget=new THREE.Vector3(), camPos=new THREE.Vector3(), camLook=new THREE.Vector3(), camLookTarget=new THREE.Vector3();
 function updateCamera(dt){
-  const P=player; const d=cam.dist, pitch=cam.pitch;
-  const aimOffX = -Math.sin(cam.yaw)*1.8, aimOffZ = -Math.cos(cam.yaw)*1.8;
-  const cx=P.x+Math.sin(cam.yaw)*d*Math.cos(pitch), cz=P.z+Math.cos(cam.yaw)*d*Math.cos(pitch), cy=2.4+d*Math.sin(pitch)+2.2;
-  let t=1; const sx=P.x,sz=P.z; for(let k=.15;k<=1;k+=.05){ const px=sx+(cx-sx)*k, pz=sz+(cz-sz)*k; if(blocked(px,pz,.5)){ t=Math.max(.15,k-.08); break; } }
-  camTarget.set(sx+(cx-sx)*t, cy*(.6+.4*t), sz+(cz-sz)*t);
-  const camSmooth = 1-Math.pow(.00008,dt);
-  camPos.lerp(camTarget, camSmooth);
-  const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
-  camera.position.copy(camPos); if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.22; camera.position.y+=(Math.random()-.5)*shake*.18; }
-  camLookTarget.set(P.x + aimOffX, 2.2, P.z + aimOffZ);
-  camLook.lerp(camLookTarget, 1-Math.pow(.0001,dt));
-  camera.lookAt(camLook);
+  const P=player;
+  // Kamera folgt automatisch der Blickrichtung des Spielers
+  let yawDiff=P.faceYaw-cam.yaw; yawDiff=Math.atan2(Math.sin(yawDiff),Math.cos(yawDiff));
+  cam.yaw+=yawDiff*Math.min(1,dt*5);
+  if(cam.fpv){
+    // Ego-Perspektive: Kamera auf Kopfhoehe
+    const fwd=-Math.sin(cam.yaw), fwdz=-Math.cos(cam.yaw);
+    camTarget.set(P.x-.3*fwd, 3.0, P.z-.3*fwdz);
+    camPos.lerp(camTarget, 1-Math.pow(.00001,dt));
+    camera.position.copy(camPos);
+    const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
+    if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12; camera.position.y+=(Math.random()-.5)*shake*.1; }
+    camLookTarget.set(P.x+fwd*8, 2.6, P.z+fwdz*8);
+    camLook.lerp(camLookTarget, 1-Math.pow(.00003,dt));
+    camera.lookAt(camLook);
+    P.mesh.visible=false;
+  } else {
+    // Third-Person: hinter dem Spieler
+    const d=cam.dist, pitch=cam.pitch;
+    const aimOffX=-Math.sin(cam.yaw)*2.5, aimOffZ=-Math.cos(cam.yaw)*2.5;
+    const cx=P.x+Math.sin(cam.yaw)*d*Math.cos(pitch), cz=P.z+Math.cos(cam.yaw)*d*Math.cos(pitch), cy=2.4+d*Math.sin(pitch)+2.2;
+    let t=1; const sx=P.x,sz=P.z; for(let k=.15;k<=1;k+=.05){ const px=sx+(cx-sx)*k, pz=sz+(cz-sz)*k; if(blocked(px,pz,.5)){ t=Math.max(.15,k-.08); break; } }
+    camTarget.set(sx+(cx-sx)*t, cy*(.6+.4*t), sz+(cz-sz)*t);
+    camPos.lerp(camTarget, 1-Math.pow(.00005,dt));
+    const shake=state.shake; state.shake=Math.max(0,shake-dt*4);
+    camera.position.copy(camPos); if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.22; camera.position.y+=(Math.random()-.5)*shake*.18; }
+    camLookTarget.set(P.x+aimOffX, 2.2, P.z+aimOffZ);
+    camLook.lerp(camLookTarget, 1-Math.pow(.00006,dt));
+    camera.lookAt(camLook);
+    P.mesh.visible=P.invincible<=0||Math.sin(state.time*30)>0;
+  }
   sun.position.set(P.x+40,70,P.z+25); sun.target.position.set(P.x,0,P.z);
 }
 function menuCamera(dt){ const a=state.time*.08; camera.position.lerp(new THREE.Vector3(Math.sin(a)*48,18,Math.cos(a)*48),.02); camera.lookAt(0,2,0); camPos.copy(camera.position); }

@@ -171,10 +171,7 @@ canvas#gl{position:fixed;inset:0;display:block}
   #ammoRow{margin-top:0;gap:4px;padding-left:10px;border-left:1px solid rgba(232,220,184,.2)}
   #ammoRow strong{font-size:24px} #ammoRow span{font-size:12px}
   #reloadTag{top:auto;bottom:-28px;left:8px;font-size:12px}
-  #weaponBar{top:calc(10px + var(--safe-t));right:calc(12px + var(--safe-r));gap:4px}
-  .wpn{min-width:0;padding:5px 10px;font-size:12px;background:var(--ink-60)}
-  .wpn kbd{display:none}
-  .wpn.active{background:var(--paper)}
+  #weaponBar{display:none}
   #streakBox{transform:translateX(-50%) scale(.82);transform-origin:bottom center}
   #toast{top:36%;font-size:clamp(16px,3.2vw,22px)}
   #killfeed div:nth-child(n+4){display:none}
