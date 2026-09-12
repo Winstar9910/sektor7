@@ -203,6 +203,8 @@ for(const [x,z] of [[-30,-42],[30,42],[42,-30],[-42,30]]){ const p=new THREE.Mes
 const BODY_H=3.5, CLIMB_MAX=BODY_H*1.5, STEP_UP=.7, GRAVITY=26, JUMP_V=9.2;
 // Sprint: 10 Sekunden bis leer, 7 Sekunden bis wieder voll
 const SPRINT_DRAIN=1/10, SPRINT_REGEN=1/7, SPRINT_MULT=1.45, SPRINT_WIEDER=.25;
+// Ducken: die Figur wird um ein Drittel kleiner (3.5 -> 2.33), Tempo halbiert
+const HOCKE_DROP=BODY_H/3, HOCKE_MULT=.5;
 function blocked(x,z,r){
   if(x<-HALF+2.2||x>HALF-2.2||z<-HALF+2.2||z>HALF-2.2) return true;
   for(const o of obstacles){ if(x>o.x-o.w/2-r&&x<o.x+o.w/2+r&&z>o.z-o.d/2-r&&z<o.z+o.d/2+r) return true; }
@@ -265,8 +267,8 @@ function makeCharacter(team,isPlayer=false){
   const mk=(geo,mat,x,y,z,parent)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); m.castShadow=true; (parent||g).add(m); return m; };
 
   // Beine an echten Hüftgelenken
-  const hipL=new THREE.Group(); hipL.position.set(-.28,1.5,0); g.add(hipL); mk(G.leg,uni,0,-.5,0,hipL);
-  const hipR=new THREE.Group(); hipR.position.set(.28,1.5,0); g.add(hipR); mk(G.leg,uni,0,-.5,0,hipR);
+  const hipL=new THREE.Group(); hipL.position.set(-.28,1.5,0); g.add(hipL); const legL=mk(G.leg,uni,0,-.5,0,hipL);
+  const hipR=new THREE.Group(); hipR.position.set(.28,1.5,0); g.add(hipR); const legR=mk(G.leg,uni,0,-.5,0,hipR);
 
   // Oberkörper als eigene Gruppe: dreht sich zur Zielrichtung, während die Beine nachziehen
   const upper=new THREE.Group(); upper.position.set(0,1.45,0); g.add(upper);
@@ -288,8 +290,8 @@ function makeCharacter(team,isPlayer=false){
   const armL=new THREE.Group(); armL.position.set(-.5,1.15,0); armL.rotation.y=.3; upper.add(armL);
   const aL=mk(G.arm,uni,0,-.33,.22,armL); aL.rotation.x=-1.32;
 
-  g.userData={ hipL,hipR,armL,armR,upper,neck,gunGrp,gun,mag,scope,muzzle,
-    walk:0, amp:0, lastSin:0, stepped:false, bob:0, lean:0, armRBase:0, armLBase:0, hipLBase:0, hipRBase:0, air:0,
+  g.userData={ hipL,hipR,legL,legR,armL,armR,upper,neck,gunGrp,gun,mag,scope,muzzle,
+    walk:0, amp:0, lastSin:0, stepped:false, bob:0, lean:0, armRBase:0, armLBase:0, hipLBase:0, hipRBase:0, air:0, hocke:0,
     recoil:0, recoilRate:8, recoilKick:1, weaponKey:'ak' };
   setGunModel(g,'ak');
   return g;
@@ -318,8 +320,15 @@ function animateCharacter(g,dt,o){
   // In der Luft: Beine anziehen. Beim Hochziehen: greifen und nachziehen.
   u.air+=((o.air?1:0)-u.air)*Math.min(1,dt*12);
   const air=u.air, reach=Math.sin(Math.min(1,o.mantle||0)*Math.PI);
-  u.hipL.rotation.x=u.hipLBase-.55*air-1.15*reach;
-  u.hipR.rotation.x=u.hipRBase-.2*air-.7*reach;
+  // Ducken: Oberkörper runter, Beine gestaucht und angewinkelt – zusammen ein Drittel weniger Höhe
+  u.hocke+=((o.crouch||0)-u.hocke)*Math.min(1,dt*12);
+  const c=u.hocke;
+  u.upper.position.y=1.45-HOCKE_DROP*c;
+  u.hipL.position.y=u.hipR.position.y=1.5-.5*c;
+  const beinSkal=1-.35*c;
+  u.legL.scale.y=u.legR.scale.y=beinSkal; u.legL.position.y=u.legR.position.y=-.5*beinSkal;
+  u.hipL.rotation.x=u.hipLBase*(1-.5*c)-.55*air-1.15*reach+.4*c;
+  u.hipR.rotation.x=u.hipRBase*(1-.5*c)-.2*air-.7*reach+.4*c;
 
   // Rückstoß: Tempo kommt von der Waffe, damit jeder Schuss ein eigener Impuls bleibt
   u.recoil=Math.max(0,u.recoil-dt*(u.recoilRate||8));
@@ -338,7 +347,7 @@ function animateCharacter(g,dt,o){
   const ap=o.pitch||0;
   const lean=Math.cos(u.walk*2)*.018*u.amp - rl*.05;
   u.lean+=(lean-u.lean)*Math.min(1,dt*20);
-  u.upper.rotation.x=u.lean-r*.045-ap*.25+.12*air+.4*reach;
+  u.upper.rotation.x=u.lean-r*.045-ap*.25+.12*air+.4*reach+.22*c;
   u.upper.rotation.z=-s*.05*u.amp;
   u.neck.rotation.y=-u.upper.rotation.y*.3;
   u.neck.rotation.x=-ap*.2;
@@ -357,7 +366,7 @@ function animateCharacter(g,dt,o){
   u.gunGrp.rotation.x=r*.16-rl*.35;
 
   // Körper federt im selben Takt wie die Beine
-  u.bob+=((Math.abs(Math.cos(u.walk))*.075*u.amp*(1-air))-u.bob)*Math.min(1,dt*16);
+  u.bob+=((Math.abs(Math.cos(u.walk))*.075*u.amp*(1-air)*(1-.6*c))-u.bob)*Math.min(1,dt*16);
   g.position.y=(o.baseY||0)+u.bob;
 }
 
@@ -371,7 +380,7 @@ const weapons={
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff}
 };
 const state={ phase:'menu', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0, shakeRate:6 };
-const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, mesh:makeCharacter('blue',true) };
+const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 
@@ -502,7 +511,7 @@ function hurtFlash(attacker){ if(!attacker) return; const dx=attacker.x-player.x
 function hitEntity(b,e){ // Segment gegen Kapsel (Körperzylinder)
   const nx=b.mesh.position.x,ny=b.mesh.position.y,nz=b.mesh.position.z;
   const ax=b.px-e.x,az=b.pz-e.z,bx=nx-e.x,bz=nz-e.z; const dx=bx-ax,dz=bz-az; const l2=dx*dx+dz*dz; let t=0; if(l2>0) t=Math.max(0,Math.min(1,-(ax*dx+az*dz)/l2));
-  const cx=ax+dx*t,cz=az+dz*t; if(cx*cx+cz*cz>.78*.78) return false; const y=b.py+(ny-b.py)*t; const ey=e.y||0; return y>ey&&y<ey+3.6;
+  const cx=ax+dx*t,cz=az+dz*t; if(cx*cx+cz*cz>.78*.78) return false; const y=b.py+(ny-b.py)*t; const ey=e.y||0; return y>ey&&y<ey+(e.height||3.6);
 }
 function updateBullets(dt){
   for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i]; b.px=b.mesh.position.x; b.py=b.mesh.position.y; b.pz=b.mesh.position.z;
@@ -701,18 +710,19 @@ const UI={
 /* ======================================================================
    EINGABE – Tastatur, Maus (Pointer Lock), Touch-Joysticks, Wischen
    ====================================================================== */
-const input={ mx:0,mz:0, ax:0,az:0, fire:false, jump:false, sprintTap:false, keys:{}, aimStick:false, aimHeld:false };
+const input={ mx:0,mz:0, ax:0,az:0, fire:false, jump:false, sprintTap:false, crouchTap:false, keys:{}, aimStick:false, aimHeld:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
   if(e.code==='KeyV') toggleFpv();
   if(e.code==='Space'){ input.jump=true; e.preventDefault(); }
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.sprintTap=true;
+  if(e.code==='ControlLeft'||e.code==='ControlRight'||e.code==='KeyC'){ input.crouchTap=true; e.preventDefault(); }
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
 addEventListener('wheel',e=>{ if(state.phase!=='play') return; const wl=['ak','shotgun','sniper']; let i=wl.indexOf(player.weapon); i= e.deltaY>0? (i+1)%3 : (i+2)%3; selectWeapon(wl[i]); },{passive:true});
-addEventListener('blur',()=>{ input.keys={}; input.fire=false; input.jump=false; input.sprintTap=false; });
+addEventListener('blur',()=>{ input.keys={}; input.fire=false; input.jump=false; input.sprintTap=false; input.crouchTap=false; });
 
 // Maus
 canvas.addEventListener('mousedown',e=>{ if(state.phase!=='play'||isTouchPointer) return; if(document.pointerLockElement!==canvas){ canvas.requestPointerLock(); return; } if(e.button===0) input.fire=true; });
@@ -760,6 +770,7 @@ if(wwEl){
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnJump').addEventListener('pointerdown',e=>{ e.preventDefault(); input.jump=true; });
 $('btnSprint').addEventListener('pointerdown',e=>{ e.preventDefault(); input.sprintTap=true; });
+$('btnCrouch').addEventListener('pointerdown',e=>{ e.preventDefault(); input.crouchTap=true; });
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
@@ -830,7 +841,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.mesh.visible=true;
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
       const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
@@ -843,14 +854,18 @@ function updatePlayer(dt){
   if(input.keys.KeyW||input.keys.ArrowUp) mz-=1; if(input.keys.KeyS||input.keys.ArrowDown) mz+=1; if(input.keys.KeyA||input.keys.ArrowLeft) mx-=1; if(input.keys.KeyD||input.keys.ArrowRight) mx+=1;
   const len=Math.hypot(mx,mz); let moving=false, realSpeed=0;
   // Sprint an- und abschalten, dann entscheiden, ob gerade wirklich gesprintet wird
-  if(input.sprintTap){ input.sprintTap=false; P.sprintOn=!P.sprintOn; }
+  if(input.crouchTap){ input.crouchTap=false; P.crouch=!P.crouch; if(P.crouch) P.sprintOn=false; }
+  if(input.sprintTap){ input.sprintTap=false; P.sprintOn=!P.sprintOn; if(P.sprintOn) P.crouch=false; }
+  P.crouchAmt+=((P.crouch?1:0)-P.crouchAmt)*Math.min(1,dt*12);
+  P.height=3.6-HOCKE_DROP*P.crouchAmt;
+  $('btnCrouch').classList.toggle('on',P.crouch);
   if(P.sprintLeer && P.stamina>=SPRINT_WIEDER) P.sprintLeer=false;
-  const sprinting = P.sprintOn && !P.sprintLeer && len>.08 && P.stamina>0 && !P.mantle;
+  const sprinting = P.sprintOn && !P.crouch && !P.sprintLeer && len>.08 && P.stamina>0 && !P.mantle;
   if(sprinting){ P.stamina=Math.max(0,P.stamina-SPRINT_DRAIN*dt); if(P.stamina<=0){ P.sprintOn=false; P.sprintLeer=true; } }
   else P.stamina=Math.min(1,P.stamina+SPRINT_REGEN*dt);
   UI.sprint(P.stamina,sprinting,P.sprintLeer);
   if(len>.08){ const s=Math.min(1,len); mx/=len; mz/=len; const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw);
-    const dx=(rx*mx - fx*mz), dz=(rz*mx - fz*mz); const speed=9.5*s*(P.reloading>0?.8:1)*(P.grounded?1:.85)*(sprinting?SPRINT_MULT:1); const ox=P.x,oz=P.z;
+    const dx=(rx*mx - fx*mz), dz=(rz*mx - fz*mz); const speed=9.5*s*(P.reloading>0?.8:1)*(P.grounded?1:.85)*(sprinting?SPRINT_MULT:1)*(1-(1-HOCKE_MULT)*P.crouchAmt); const ox=P.x,oz=P.z;
     const stepX=dx*speed*dt, stepZ=dz*speed*dt;
     if(!blockedAt(P.x+stepX,P.z,P.radius,P.y)) P.x+=stepX;
     if(!blockedAt(P.x,P.z+stepZ,P.radius,P.y)) P.z+=stepZ;
@@ -863,7 +878,7 @@ function updatePlayer(dt){
   let mantleProg=0;
   if(P.mantle){ mantleProg=updateMantle(P,dt); moving=false; realSpeed=0; }
   else {
-    if(input.jump){ input.jump=false; if(!tryMantle(P) && P.grounded){ P.vy=JUMP_V; P.grounded=false; Audio.step(); } }
+    if(input.jump){ input.jump=false; P.crouch=false; if(!tryMantle(P) && P.grounded){ P.vy=JUMP_V; P.grounded=false; Audio.step(); } }
     // Im Fallen greift die Figur von selbst nach einer Kante vor ihr
     if(!P.grounded && P.vy<2.5 && moving) tryMantle(P);
     if(!P.mantle){
@@ -912,7 +927,7 @@ function updatePlayer(dt){
   // Pose zuerst setzen, danach schießen – so passt die Laufspitze zum Schuss desselben Frames
   P.mesh.position.x=P.x; P.mesh.position.z=P.z; P.mesh.rotation.y=P.faceYaw;
   const rlProg= P.reloading>0? 1-P.reloading/weapons[P.weapon].reload : 0;
-  animateCharacter(P.mesh,dt,{moving,speed:realSpeed,twist:tw,snap:wantFire,dip:weaponSwitch.dip,reload:rlProg,pitch:-cam.pitch,baseY:P.y,air:!P.grounded||!!P.mantle,mantle:mantleProg});
+  animateCharacter(P.mesh,dt,{moving,speed:realSpeed,twist:tw,snap:wantFire,dip:weaponSwitch.dip,reload:rlProg,pitch:-cam.pitch,baseY:P.y,air:!P.grounded||!!P.mantle,mantle:mantleProg,crouch:P.crouchAmt});
   if(P.mesh.userData.stepped&&P.grounded&&!P.mantle) Audio.step();   // Schrittton genau beim sichtbaren Fußaufsatz
 
   const w=weapons[P.weapon];
@@ -940,20 +955,20 @@ function updateCamera(dt){
   if(cam.fpv){
     // Ego-Perspektive: Kamera am Kopf, schaut nach vorn
     const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw);
-    camTarget.set(P.x, P.y+3.0+(P.mesh.position.y-P.y)*.5, P.z);
+    camTarget.set(P.x, P.y+3.0-HOCKE_DROP*P.crouchAmt+(P.mesh.position.y-P.y)*.5, P.z);
     camPos.copy(camTarget);
     camera.position.copy(camPos);
     const shake=state.shake; state.shake=Math.max(0,shake-dt*(state.shakeRate||6));
     if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12; camera.position.y+=(Math.random()-.5)*shake*.1; }
     const cp=Math.cos(cam.pitch), sp=Math.sin(cam.pitch);
-    camLookTarget.set(P.x+fx*10*cp, P.y+3.0-10*sp, P.z+fz*10*cp);
+    camLookTarget.set(P.x+fx*10*cp, P.y+3.0-HOCKE_DROP*P.crouchAmt-10*sp, P.z+fz*10*cp);
     camLook.copy(camLookTarget);
     camera.lookAt(camLook);
     P.mesh.visible=false;
   } else {
     // Third-Person: hinter dem Spieler, von oben
     const d=cam.dist, pitch=cam.pitch;
-    const cp=Math.cos(pitch), sp=Math.sin(pitch), PIV=2.6+P.y;
+    const cp=Math.cos(pitch), sp=Math.sin(pitch), PIV=2.6+P.y-HOCKE_DROP*P.crouchAmt;
     let cx=P.x+Math.sin(cam.yaw)*d*cp, cz=P.z+Math.cos(cam.yaw)*d*cp, cy=PIV+1.9*cp+d*sp;
     let t=1; const sx=P.x,sz=P.z; for(let k=.15;k<=1;k+=.05){ const px=sx+(cx-sx)*k, pz=sz+(cz-sz)*k; if(blocked(px,pz,.5)){ t=Math.max(.15,k-.08); break; } }
     let tx=sx+(cx-sx)*t, tz=sz+(cz-sz)*t, ty=Math.max(groundAt(sx+(cx-sx)*t,sz+(cz-sz)*t,.3)+.8, PIV+(cy-PIV)*t);
@@ -1153,7 +1168,7 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; input.jump=false; input.sprintTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  state.score={blue:0,red:0}; state.time=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
