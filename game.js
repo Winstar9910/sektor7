@@ -701,11 +701,28 @@ function buildTankMesh(team){
   g.add(turret); g.userData.turret=turret; return g;
 }
 const tanks=[];
+function tankBlocked(x,z,tank){
+  // Kollisionspruefung fuer Panzer (breiter als Spieler), eigenes Hindernis ignorieren
+  if(x<-HALF+4||x>HALF-4||z<-HALF+4||z>HALF-4) return true;
+  const r=3.2;
+  for(const o of obstacles){ if(o.dynamic&&o.tank===tank) continue; if(x>o.x-o.w/2-r&&x<o.x+o.w/2+r&&z>o.z-o.d/2-r&&z<o.z+o.d/2+r) return true; }
+  return false;
+}
+function tankMoveTo(tank,dx,dz){
+  // Einzelachsen-Bewegung wie moveEntity, aber fuer Panzer
+  if(!tankBlocked(tank.x+dx,tank.z,tank)) tank.x+=dx;
+  if(!tankBlocked(tank.x,tank.z+dz,tank)) tank.z+=dz;
+}
 function spawnTank(team){
   const spawnX= team==='blue'? -35 : 35, spawnZ= team==='blue'? 38 : -38;
   const mesh=buildTankMesh(team); mesh.position.set(spawnX,0,spawnZ); scene.add(mesh);
   const yaw= team==='blue'? Math.PI : 0; mesh.rotation.y=yaw;
-  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:4.5, turretYaw:0, shootTimer:3, cooldown:2.8, target:null, targetTimer:0, radius:2.8 };
+  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:4.5, turretYaw:0, shootTimer:3, cooldown:2.8, target:null, targetTimer:0, radius:2.8,
+    // Pathfinding-State
+    path:[], pathIndex:0, pathTimer:0, goalX:0, goalZ:team==='blue'?15:-15,
+    // Stuck-Detection
+    stuckTimer:0, lastMoveX:spawnX, lastMoveZ:spawnZ, steerAngle:0
+  };
   tanks.push(tank);
   tank.obstacle={ x:spawnX, z:spawnZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
   return tank;
@@ -713,7 +730,8 @@ function spawnTank(team){
 function updateTanks(dt){
   for(const tank of tanks){
     if(!tank.alive) continue;
-    tank.shootTimer-=dt; tank.targetTimer-=dt;
+    tank.shootTimer-=dt; tank.targetTimer-=dt; tank.pathTimer-=dt;
+    // --- Zielsuche ---
     if(tank.targetTimer<=0){
       tank.targetTimer=.6; let best=null,bd=1e9;
       const enemies=[...bots.filter(b=>b.alive&&b.team!==tank.team)];
@@ -721,6 +739,7 @@ function updateTanks(dt){
       for(const e of enemies){ const d=Math.hypot(e.x-tank.x,e.z-tank.z); if(d<bd&&hasLOS(tank.x,tank.z,e.x,e.z)){bd=d;best=e;} }
       tank.target=best;
     }
+    // --- Turm + Schiessen ---
     if(tank.target&&tank.target.alive){
       const dx=tank.target.x-tank.x, dz=tank.target.z-tank.z;
       const wantYaw=Math.atan2(dx,dz)-tank.yaw;
@@ -738,9 +757,56 @@ function updateTanks(dt){
         burstParticles(muzzle,8,'fire',8,2,.3,2); state.shake=Math.max(state.shake,.5);
       }
     }
-    const cx=0, cz=tank.team==='blue'?15:-15;
-    const tdx=cx-tank.x, tdz=cz-tank.z, td=Math.hypot(tdx,tdz);
-    if(td>5){ tank.x+=tdx/td*tank.speed*dt; tank.z+=tdz/td*tank.speed*dt; const wy=Math.atan2(tdx,tdz); let d2=wy-tank.yaw; d2=Math.atan2(Math.sin(d2),Math.cos(d2)); tank.yaw+=d2*Math.min(1,dt*2); }
+    // --- Bewegung mit Pathfinding + Stuck-Detection ---
+    const gx=tank.goalX, gz=tank.goalZ;
+    const distToGoal=Math.hypot(gx-tank.x,gz-tank.z);
+    if(distToGoal>5){
+      // Stuck-Detection: hat sich der Panzer in den letzten 2s kaum bewegt?
+      tank.stuckTimer+=dt;
+      if(tank.stuckTimer>2){
+        const moved=Math.hypot(tank.x-tank.lastMoveX,tank.z-tank.lastMoveZ);
+        if(moved<1.5){
+          // Festgefahren! Neuen Ausweichpunkt setzen
+          tank.steerAngle+=(Math.random()>.5?1:-1)*(.8+Math.random()*.6);
+          tank.path=[]; tank.pathTimer=0;
+        }
+        tank.lastMoveX=tank.x; tank.lastMoveZ=tank.z; tank.stuckTimer=0;
+      }
+      // A*-Pfad berechnen (seltener als Bots, da Panzer langsamer)
+      if(tank.pathTimer<=0||tank.path.length===0||tank.pathIndex>=tank.path.length){
+        tank.path=findPath(tank.x,tank.z,gx,gz);
+        tank.pathIndex=tank.path.length>1?1:0;
+        tank.pathTimer=1.5+Math.random()*.5;
+      }
+      let mvx=0,mvz=0;
+      if(tank.path.length>1&&tank.pathIndex<tank.path.length){
+        // Dem Pfad folgen
+        const wp=tank.path[tank.pathIndex];
+        const wx=wp.x-tank.x, wz=wp.z-tank.z, wd=Math.hypot(wx,wz);
+        if(wd<3) tank.pathIndex++;
+        else { mvx=wx/wd; mvz=wz/wd; }
+      } else {
+        // Fallback: Richtung Ziel mit Ausweichwinkel
+        const ddx=gx-tank.x, ddz=gz-tank.z, dd=Math.hypot(ddx,ddz);
+        if(dd>.1){ mvx=ddx/dd; mvz=ddz/dd; }
+      }
+      // Ausweichwinkel anwenden (fadet langsam aus)
+      if(Math.abs(tank.steerAngle)>.05){
+        const sa=tank.steerAngle;
+        const rmx=mvx*Math.cos(sa)-mvz*Math.sin(sa);
+        const rmz=mvx*Math.sin(sa)+mvz*Math.cos(sa);
+        mvx=rmx; mvz=rmz;
+        tank.steerAngle*=Math.pow(.3,dt); // Ausfaden
+      }
+      if(mvx||mvz){
+        const l=Math.hypot(mvx,mvz);
+        tankMoveTo(tank,mvx/l*tank.speed*dt,mvz/l*tank.speed*dt);
+        // Panzer-Rumpf dreht sich in Fahrtrichtung (langsam)
+        const wy=Math.atan2(mvx,mvz); let d2=wy-tank.yaw;
+        d2=Math.atan2(Math.sin(d2),Math.cos(d2));
+        tank.yaw+=d2*Math.min(1,dt*1.8);
+      }
+    }
     tank.mesh.position.set(tank.x,0,tank.z); tank.mesh.rotation.y=tank.yaw;
     tank.obstacle.x=tank.x; tank.obstacle.z=tank.z;
   }
