@@ -385,7 +385,12 @@ function updateBullets(dt){
     if(!remove && b.team!==player.team && player.alive && hitEntity(b,player)){ damage(player,b.damage,b.shooter); remove=true; spark=false; burstParticles(p,4,'dust',3,.8,.25); }
     if(!remove){ for(const bot of bots){ if(!bot.alive||bot.team===b.team) continue; if(hitEntity(b,bot)){ damage(bot,b.damage,b.shooter); remove=true; spark=false; burstParticles(p,4,state.splash?'blood':'dust',3,.8,.25); break; } } }
     if(!remove){ for(const tank of tanks){ if(hitTank(b,tank)){ damageTank(tank,b.damage); remove=true; break; } } }
-    if(remove){ if(spark) burstParticles(p,4,'spark',5,.7,.3); scene.remove(b.mesh); bulletPool.push(b.mesh); bullets.splice(i,1); }
+    if(remove){
+      // Panzergranaten explodieren bei Einschlag
+      if(b.damage===0&&spark){ explode(p.x,p.z,6,70); }
+      else if(spark) burstParticles(p,4,'spark',5,.7,.3);
+      scene.remove(b.mesh); bulletPool.push(b.mesh); bullets.splice(i,1);
+    }
   }
 }
 function updateEffects(dt){
@@ -401,7 +406,9 @@ function updateEffects(dt){
 function findTarget(bot){
   let best=null,bd=1e9; const cands=[]; if(bot.team==='red'&&player.alive) cands.push(player);
   for(const b of bots) if(b.alive&&b.team!==bot.team) cands.push(b);
-  for(const c of cands){ let d=Math.hypot(c.x-bot.x,c.z-bot.z); if(hasLOS(bot.x,bot.z,c.x,c.z)) d*=.55; if(c===player) d*=.85; if(d<bd){bd=d;best=c;} }
+  // Feindliche Panzer als Ziel einbeziehen
+  for(const t of tanks) if(t.alive&&t.team!==bot.team) cands.push({x:t.x,z:t.z,isTank:true,tank:t});
+  for(const c of cands){ let d=Math.hypot(c.x-bot.x,c.z-bot.z); if(hasLOS(bot.x,bot.z,c.x,c.z)) d*=.55; if(c===player) d*=.85; if(c.isTank) d*=1.3; if(d<bd){bd=d;best=c;} }
   return best;
 }
 function updateBots(dt){
@@ -743,8 +750,10 @@ function updateTanks(dt){
     if(tank.targetTimer<=0){
       tank.targetTimer=.6; let best=null,bd=1e9;
       const enemies=[...bots.filter(b=>b.alive&&b.team!==tank.team)];
+      // Panzer greift auch den Spieler an (wenn feindlich) und andere Panzer
       if(tank.team==='red'&&player.alive) enemies.push(player);
-      for(const e of enemies){ const d=Math.hypot(e.x-tank.x,e.z-tank.z); if(d<bd&&hasLOS(tank.x,tank.z,e.x,e.z)){bd=d;best=e;} }
+      for(const ot of tanks) if(ot.alive&&ot.team!==tank.team) enemies.push({x:ot.x,z:ot.z,alive:true,isTank:true,tank:ot});
+      for(const e of enemies){ const d=Math.hypot(e.x-tank.x,e.z-tank.z); if(d<bd&&(d<20||hasLOS(tank.x,tank.z,e.x,e.z))){bd=d;best=e;} }
       tank.target=best;
     }
     // --- Turm + Schiessen (unabhaengig von Fahrtrichtung) ---
@@ -759,10 +768,17 @@ function updateTanks(dt){
         const absYaw=tank.yaw+tank.turretYaw;
         const dir=new THREE.Vector3(Math.sin(absYaw),0,Math.cos(absYaw));
         const muzzle=new THREE.Vector3(tank.x+dir.x*5,2.5,tank.z+dir.z*5);
-        const w={speed:110,damage:80,pellets:1,spread:0,range:100,tracer:0xff6020};
+        // Panzergranate: Tracer + Explosion bei Einschlag
+        const w={speed:85,damage:0,pellets:1,spread:.008,range:80,tracer:0xff4010,tankShell:true,shellTeam:tank.team};
         spawnBullet({name:'Panzer',team:tank.team,x:tank.x,z:tank.z},muzzle,dir,w,tank.team);
         Audio.explosion({x:tank.x,z:tank.z},false);
-        burstParticles(muzzle,8,'fire',8,2,.3,2); state.shake=Math.max(state.shake,.5);
+        burstParticles(muzzle,12,'fire',10,2.5,.4,2); state.shake=Math.max(state.shake,.6);
+        // Zusaetzlich: Bombe auf Zielposition abwerfen
+        if(tank.target&&Math.random()<.35){
+          const bm=new THREE.Mesh(new THREE.SphereGeometry(.5,10,8),new THREE.MeshStandardMaterial({color:0x2c2c2c,roughness:.6,metalness:.5}));
+          bm.position.copy(muzzle); bm.castShadow=true; scene.add(bm);
+          bombs.push({m:bm,tx:tank.target.x+(Math.random()-.5)*5,tz:tank.target.z+(Math.random()-.5)*5,vy:8});
+        }
       }
     }
     // --- Steering-basierte Bewegung ---
