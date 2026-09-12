@@ -201,6 +201,8 @@ for(const [x,z] of [[-30,-42],[30,42],[42,-30],[-42,30]]){ const p=new THREE.Mes
 
 // Figurhöhe rund 3.5 – geklettert wird bis zum Anderthalbfachen davon
 const BODY_H=3.5, CLIMB_MAX=BODY_H*1.5, STEP_UP=.7, GRAVITY=26, JUMP_V=9.2;
+// Sprint: 10 Sekunden bis leer, 7 Sekunden bis wieder voll
+const SPRINT_DRAIN=1/10, SPRINT_REGEN=1/7, SPRINT_MULT=1.45, SPRINT_WIEDER=.25;
 function blocked(x,z,r){
   if(x<-HALF+2.2||x>HALF-2.2||z<-HALF+2.2||z>HALF-2.2) return true;
   for(const o of obstacles){ if(x>o.x-o.w/2-r&&x<o.x+o.w/2+r&&z>o.z-o.d/2-r&&z<o.z+o.d/2+r) return true; }
@@ -369,7 +371,7 @@ const weapons={
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff}
 };
 const state={ phase:'menu', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, shake:0, shakeRate:6 };
-const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, mesh:makeCharacter('blue',true) };
+const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 
@@ -676,6 +678,17 @@ const UI={
   score(){ this.scoreBlue.textContent=state.score.blue; this.scoreRed.textContent=state.score.red; },
   hitmark(kill){ this.cross.classList.remove('hit','kill'); void this.cross.offsetWidth; this.cross.classList.add('hit'); if(kill) this.cross.classList.add('kill'); },
   hideCross(h){ this.cross.classList.toggle('hidden',h); },
+  // Ausdauerring: der Faden verschwindet ab drei Uhr im Uhrzeigersinn
+  sprintEl:$('btnSprint'), sprintRing:null, sprintUmfang:0, sprintLetzt:-1,
+  sprint(p,aktiv,leer){
+    if(!this.sprintEl) return;
+    if(!this.sprintRing){ this.sprintRing=this.sprintEl.querySelector('circle'); if(!this.sprintRing) return;
+      this.sprintUmfang=2*Math.PI*30; this.sprintRing.style.strokeDasharray=this.sprintUmfang; }
+    if(Math.abs(p-this.sprintLetzt)>.002){ this.sprintLetzt=p;
+      this.sprintRing.style.strokeDashoffset=this.sprintUmfang*(p-1); }
+    this.sprintEl.classList.toggle('on',!!aktiv);
+    this.sprintEl.classList.toggle('leer',!!leer);
+  },
   streak(){ this.streakN.textContent=player.streak; this.btnHeli.classList.toggle('ready',player.streak>=3&&!heli.active); this.btnHeli.classList.toggle('active',heli.active); this.btnNuke.classList.toggle('ready',player.streak>=7&&!nuke.active); },
   toast(msg){ clearTimeout(this.toastT); this.toastEl.textContent=msg; this.toastEl.classList.toggle('show',!!msg); if(msg) this.toastT=setTimeout(()=>this.toastEl.classList.remove('show'),2200); },
   feed(a,t){ const d=document.createElement('div'); const isMe=a===player; const cls=x=>x==='blue'?'b':'r'; d.innerHTML=`<span class="${cls(a.team)}">${a.name}</span> ▸ <span class="${cls(t.team)}">${t.name}</span>`; if(isMe||t===player) d.classList.add('me'); this.feedEl.prepend(d); while(this.feedEl.children.length>5) this.feedEl.lastChild.remove(); setTimeout(()=>d.remove(),6000); },
@@ -688,17 +701,18 @@ const UI={
 /* ======================================================================
    EINGABE – Tastatur, Maus (Pointer Lock), Touch-Joysticks, Wischen
    ====================================================================== */
-const input={ mx:0,mz:0, ax:0,az:0, fire:false, jump:false, keys:{}, aimStick:false, aimHeld:false };
+const input={ mx:0,mz:0, ax:0,az:0, fire:false, jump:false, sprintTap:false, keys:{}, aimStick:false, aimHeld:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
   if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
   if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
   if(e.code==='KeyV') toggleFpv();
   if(e.code==='Space'){ input.jump=true; e.preventDefault(); }
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.sprintTap=true;
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
 addEventListener('wheel',e=>{ if(state.phase!=='play') return; const wl=['ak','shotgun','sniper']; let i=wl.indexOf(player.weapon); i= e.deltaY>0? (i+1)%3 : (i+2)%3; selectWeapon(wl[i]); },{passive:true});
-addEventListener('blur',()=>{ input.keys={}; input.fire=false; input.jump=false; });
+addEventListener('blur',()=>{ input.keys={}; input.fire=false; input.jump=false; input.sprintTap=false; });
 
 // Maus
 canvas.addEventListener('mousedown',e=>{ if(state.phase!=='play'||isTouchPointer) return; if(document.pointerLockElement!==canvas){ canvas.requestPointerLock(); return; } if(e.button===0) input.fire=true; });
@@ -745,6 +759,7 @@ if(wwEl){
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
 $('btnJump').addEventListener('pointerdown',e=>{ e.preventDefault(); input.jump=true; });
+$('btnSprint').addEventListener('pointerdown',e=>{ e.preventDefault(); input.sprintTap=true; });
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
@@ -815,7 +830,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.mesh.visible=true;
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.mesh.visible=true;
       const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
@@ -827,8 +842,15 @@ function updatePlayer(dt){
   let mx=input.mx, mz=input.mz;
   if(input.keys.KeyW||input.keys.ArrowUp) mz-=1; if(input.keys.KeyS||input.keys.ArrowDown) mz+=1; if(input.keys.KeyA||input.keys.ArrowLeft) mx-=1; if(input.keys.KeyD||input.keys.ArrowRight) mx+=1;
   const len=Math.hypot(mx,mz); let moving=false, realSpeed=0;
+  // Sprint an- und abschalten, dann entscheiden, ob gerade wirklich gesprintet wird
+  if(input.sprintTap){ input.sprintTap=false; P.sprintOn=!P.sprintOn; }
+  if(P.sprintLeer && P.stamina>=SPRINT_WIEDER) P.sprintLeer=false;
+  const sprinting = P.sprintOn && !P.sprintLeer && len>.08 && P.stamina>0 && !P.mantle;
+  if(sprinting){ P.stamina=Math.max(0,P.stamina-SPRINT_DRAIN*dt); if(P.stamina<=0){ P.sprintOn=false; P.sprintLeer=true; } }
+  else P.stamina=Math.min(1,P.stamina+SPRINT_REGEN*dt);
+  UI.sprint(P.stamina,sprinting,P.sprintLeer);
   if(len>.08){ const s=Math.min(1,len); mx/=len; mz/=len; const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw); const rx=Math.cos(cam.yaw), rz=-Math.sin(cam.yaw);
-    const dx=(rx*mx - fx*mz), dz=(rz*mx - fz*mz); const speed=9.5*s*(P.reloading>0?.8:1)*(P.grounded?1:.85); const ox=P.x,oz=P.z;
+    const dx=(rx*mx - fx*mz), dz=(rz*mx - fz*mz); const speed=9.5*s*(P.reloading>0?.8:1)*(P.grounded?1:.85)*(sprinting?SPRINT_MULT:1); const ox=P.x,oz=P.z;
     const stepX=dx*speed*dt, stepZ=dz*speed*dt;
     if(!blockedAt(P.x+stepX,P.z,P.radius,P.y)) P.x+=stepX;
     if(!blockedAt(P.x,P.z+stepZ,P.radius,P.y)) P.z+=stepZ;
@@ -1131,7 +1153,7 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; input.jump=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  state.score={blue:0,red:0}; state.time=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; input.jump=false; input.sprintTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
