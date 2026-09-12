@@ -678,11 +678,7 @@ function updatePlayer(dt){
 const camTarget=new THREE.Vector3(), camPos=new THREE.Vector3(), camLook=new THREE.Vector3(), camLookTarget=new THREE.Vector3();
 function updateCamera(dt){
   const P=player;
-  // Kamera dreht NUR beim Zielen/Schiessen mit (nicht beim Laufen!)
-  if(input.aimStick||input.fire){
-    let yd=P.faceYaw-cam.yaw; yd=Math.atan2(Math.sin(yd),Math.cos(yd));
-    cam.yaw+=yd*Math.min(1,dt*4);
-  }
+
   if(cam.fpv){
     // Ego-Perspektive: Kamera am Kopf, schaut nach vorn
     const fx=-Math.sin(cam.yaw), fz=-Math.cos(cam.yaw);
