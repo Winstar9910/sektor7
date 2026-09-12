@@ -408,7 +408,7 @@ function findTarget(bot){
   for(const b of bots) if(b.alive&&b.team!==bot.team) cands.push(b);
   // Feindliche Panzer als Ziel einbeziehen
   for(const t of tanks) if(t.alive&&t.team!==bot.team) cands.push({x:t.x,z:t.z,isTank:true,tank:t});
-  for(const c of cands){ let d=Math.hypot(c.x-bot.x,c.z-bot.z); if(hasLOS(bot.x,bot.z,c.x,c.z)) d*=.55; if(c===player) d*=.85; if(c.isTank) d*=.9; // Panzer bevorzugt angreifen if(d<bd){bd=d;best=c;} }
+  for(const c of cands){ let d=Math.hypot(c.x-bot.x,c.z-bot.z); if(hasLOS(bot.x,bot.z,c.x,c.z)) d*=.55; if(c===player) d*=.85; if(c.isTank) d*=.65; if(d<bd){bd=d;best=c;} }
   return best;
 }
 function updateBots(dt){
@@ -470,10 +470,9 @@ function updateHeli(dt){
   const yaw=Math.atan2(tx-p.x,tz-p.z); heli.mesh.rotation.set(0,yaw,0); heli.mesh.rotation.z=Math.sin(state.time*1.3)*.08; heli.mesh.rotation.x=-.12;
   heli.mesh.userData.light.intensity= (Math.sin(state.time*6)>.7)?12:0;
   heli.shotT-=dt; heli.bombT-=dt;
-  const heliTargets=bots.filter(b=>b.alive&&b.team==='red');
-  // Heli greift auch den feindlichen Panzer an
-  for(const t of tanks) if(t.alive&&t.team==='red') heliTargets.push({x:t.x,z:t.z,isTank:true,tank:t});
-  const enemies=heliTargets;
+  const enemies=[...bots.filter(b=>b.alive&&b.team==='red')];
+    // Heli greift auch den roten Panzer an
+    for(const t of tanks) if(t.alive&&t.team==='red') enemies.push({x:t.x,z:t.z,isTank:true,tank:t});
   if(heli.timer>2.5&&enemies.length){
     if(heli.shotT<=0){ heli.shotT=.09; const t=enemies[Math.floor(Math.random()*enemies.length)]; const dir=new THREE.Vector3(t.x-p.x,1.6-p.y,t.z-p.z).normalize(); dir.x+=(Math.random()-.5)*.05; dir.z+=(Math.random()-.5)*.05; dir.normalize();
       fire({x:p.x,z:p.z,team:'blue',weapon:'ak',name:'Heli',isHeli:true},dir,p.clone().add(new THREE.Vector3(0,-.8,1.5))); }
@@ -489,6 +488,8 @@ function explode(x,z,radius,dmg,big=false){
   const scorch=new THREE.Mesh(new THREE.CircleGeometry(radius*.55,20),new THREE.MeshBasicMaterial({color:0x1a1611,transparent:true,opacity:.7,depthWrite:false})); scorch.rotation.x=-Math.PI/2; scorch.position.set(x,.012,z); scene.add(scorch); decals.push({g:scorch,mat:scorch.material,life:60});
   const hit=(e,attacker)=>{ if(!e.alive) return; const d=Math.hypot(e.x-x,e.z-z); if(d<=radius) damage(e,dmg*(1-.5*d/radius),attacker); };
   hit(player,{name:'Heli',team:'blue',x,z}); for(const b of bots) hit(b, big? player : {name:'Heli',team:'blue',x,z,isHeli:true});
+  // Explosionen beschaedigen auch Panzer
+  for(const t of tanks){ if(!t.alive) continue; const td=Math.hypot(t.x-x,t.z-z); if(td<=radius+2) damageTank(t,dmg*(1-.4*td/(radius+2))); }
 }
 function updateBombs(dt){
   for(let i=bombs.length-1;i>=0;i--){ const b=bombs[i]; b.vy-=22*dt; b.m.position.y+=b.vy*dt; b.m.position.x+=(b.tx-b.m.position.x)*dt*1.5; b.m.position.z+=(b.tz-b.m.position.z)*dt*1.5; if(b.m.position.y<=.4){ explode(b.m.position.x,b.m.position.z,7,90); scene.remove(b.m); bombs.splice(i,1);} }
@@ -730,22 +731,19 @@ function spawnTank(team){
   const spawnX= team==='blue'? -35 : 35, spawnZ= team==='blue'? 38 : -38;
   const mesh=buildTankMesh(team); mesh.position.set(spawnX,0,spawnZ); scene.add(mesh);
   const yaw= team==='blue'? Math.PI : 0; mesh.rotation.y=yaw;
-  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:6.5, turretYaw:0, shootTimer:3, cooldown:2.8, target:null, targetTimer:0, radius:2.8,
+  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:6.2, turretYaw:0, shootTimer:3, cooldown:2.8, target:null, targetTimer:0, radius:2.8,
     stuckT:0, prevX:spawnX, prevZ:spawnZ, avoidYaw:0, avoidT:0, waypointIdx:0 };
   tanks.push(tank);
   tank.obstacle={ x:spawnX, z:spawnZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
-  // Wegpunkte entlang der Arena-Raender (breite freie Korridore)
-  if(team==='blue'){
-    tank.waypoints=[
-      {x:-35,z:28},{x:-45,z:10},{x:-45,z:-10},{x:-35,z:-28},
-      {x:-15,z:-35},{x:10,z:-20},{x:0,z:12}
-    ];
-  } else {
-    tank.waypoints=[
-      {x:35,z:-28},{x:45,z:-10},{x:45,z:10},{x:35,z:28},
-      {x:15,z:35},{x:-10,z:20},{x:0,z:-12}
-    ];
-  }
+  // Feste Wegpunkte um den zentralen Bunker herum
+  const side=team==='blue'?1:-1;
+  tank.waypoints=[
+    {x:spawnX, z:spawnZ-10*side},
+    {x:-38*Math.sign(spawnX), z:spawnZ-15*side},
+    {x:-38*Math.sign(spawnX), z:0},
+    {x:-20*Math.sign(spawnX), z:-8*side},
+    {x:0, z:team==='blue'?12:-12}
+  ];
   return tank;
 }
 function updateTanks(dt){
@@ -799,16 +797,23 @@ function updateTanks(dt){
     if(goalDist<5) continue; // nah genug am letzten Punkt
     // Wunschrichtung zum Wegpunkt
     let wantDir=Math.atan2(goalX-tank.x,goalZ-tank.z);
-    // Stuck-Detection: alle 1s pruefen
+    // Stuck-Detection: alle 1.5s pruefen
     tank.stuckT+=dt;
-    if(tank.stuckT>1.0){
+    if(tank.stuckT>1.2){
       const moved=Math.hypot(tank.x-tank.prevX,tank.z-tank.prevZ);
-      if(moved<.5){
-        // Festgefahren! Staerkeren Ausweichwinkel + naechsten Wegpunkt ueberspringen
+      if(moved<.6){
+        tank.stuckCount=(tank.stuckCount||0)+1;
+        if(tank.stuckCount>=3&&tank.waypointIdx<tank.waypoints.length-1){
+          // 3x hintereinander fest: Wegpunkt ueberspringen
+          tank.waypointIdx++; tank.stuckCount=0;
+        }
+        // Starker Ausweichwinkel + kurz rueckwaerts
         tank.avoidYaw=(Math.random()>.5?1:-1)*(1.5+Math.random());
         tank.avoidT=2.5+Math.random()*1.5;
-        if(tank.waypointIdx<tank.waypoints.length-2) tank.waypointIdx++;
-      }
+        // Kurz zuruecksetzen
+        const bx=-Math.sin(tank.yaw)*2, bz=-Math.cos(tank.yaw)*2;
+        if(!tankBlocked(tank.x+bx,tank.z+bz,tank)){ tank.x+=bx; tank.z+=bz; }
+      } else { tank.stuckCount=0; }
       tank.prevX=tank.x; tank.prevZ=tank.z; tank.stuckT=0;
     }
     // Ausweich-Timer abbauen
@@ -816,38 +821,26 @@ function updateTanks(dt){
       tank.avoidT-=dt;
       wantDir+=tank.avoidYaw;
     }
-    // Voraus-Sondierung: 11 Richtungen, naehere + weitere Proben
+    // Voraus-Sondierung: 7 Richtungen pruefen, beste waehlen
     let bestDir=wantDir, bestScore=-1;
-    for(let a=-1.8;a<=1.8;a+=.36){
+    for(let a=-2.4;a<=2.4;a+=.3){
       const testDir=wantDir+a;
       let score=0;
-      for(let d=2.5;d<=14;d+=2.5){
+      // Punkte fuer freie Strecke in dieser Richtung (naeher + weiter pruefen)
+      for(let d=3;d<=18;d+=3){
         if(tankProbe(tank,testDir,d)) score+=1; else break;
       }
-      score+=Math.max(0,1.2-Math.abs(a))*0.6;
+      // Bonus wenn nah an Wunschrichtung
+      score+=Math.max(0,1-Math.abs(a)*.4)*0.8;
       if(score>bestScore){ bestScore=score; bestDir=testDir; }
     }
-    // Wenn alles blockiert: rueckwaerts
-    if(bestScore<=0.6){
-      bestDir=wantDir+Math.PI;
-      tank.avoidYaw=(Math.random()>.5?1:-1)*2;
-      tank.avoidT=1.5;
-    }
-    // Bewegung
+    // Bewegung in die beste Richtung
     const mvx=Math.sin(bestDir), mvz=Math.cos(bestDir);
     const step=tank.speed*dt;
     const ox=tank.x, oz=tank.z;
+    // Einzelachsen-Bewegung (gleiten an Waenden)
     if(!tankBlocked(tank.x+mvx*step,tank.z,tank)) tank.x+=mvx*step;
     if(!tankBlocked(tank.x,tank.z+mvz*step,tank)) tank.z+=mvz*step;
-    // Zweiter Versuch: halber Schritt wenn voller blockiert war
-    if(Math.abs(tank.x-ox)<.001&&Math.abs(tank.z-oz)<.001){
-      const hs=step*.4;
-      for(let ra=-1.5;ra<=1.5;ra+=.5){
-        const ed=bestDir+ra;
-        const ex=Math.sin(ed)*hs, ez=Math.cos(ed)*hs;
-        if(!tankBlocked(tank.x+ex,tank.z+ez,tank)){ tank.x+=ex; tank.z+=ez; break; }
-      }
-    }
     // Rumpf dreht in Fahrtrichtung
     const actualDx=tank.x-ox, actualDz=tank.z-oz;
     if(Math.hypot(actualDx,actualDz)>.001){
