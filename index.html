@@ -88,7 +88,7 @@
 <div class="screen" id="startScreen">
   <div class="sheet">
     <div class="stamp">Prototyp</div>
-    <h1>Sektor 7<small>Team-Deathmatch gegen Bots · erstes Team mit 30 Abschüssen gewinnt</small></h1>
+    <h1>Sektor 7<small>Team-Deathmatch gegen Bots · erstes Team mit <b id="goalHint">30</b> Abschüssen gewinnt</small></h1>
     <div class="controls-grid" id="ctrlDesktop">
       <div><b>W A S D</b>Laufen</div><div><b>Leertaste</b>Springen und klettern</div><div><b>Shift</b>Sprinten</div><div><b>Maus</b>Umsehen, Linksklick feuert</div>
       <div><b>1 · 2 · 3 / Mausrad</b>Waffe wechseln</div><div><b>R</b>Nachladen</div>
@@ -104,7 +104,8 @@
       <label class="opt"><span>Blutspritzer</span><input type="checkbox" id="optSplash"></label>
       <label class="opt"><span>Zielhilfe (Touch)</span><input type="checkbox" id="optAssist" checked></label>
       <label class="opt"><span>Empfindlichkeit</span><input type="range" id="optSens" min="3" max="15" value="8"></label>
-      <label class="opt"><span>Grafik</span><select id="optQuality" style="font:inherit;font-size:16px;padding:4px 8px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink)"><option value="high">Hoch</option><option value="medium" selected>Mittel</option><option value="low">Niedrig</option></select></label>
+      <label class="opt"><span>Punkte zum Sieg</span><select id="optGoal" class="opt-select"><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="40">40</option><option value="50">50</option><option value="60">60</option><option value="70">70</option><option value="80">80</option><option value="90">90</option><option value="100">100</option><option value="110">110</option><option value="120">120</option><option value="130">130</option><option value="140">140</option><option value="150">150</option><option value="160">160</option><option value="170">170</option><option value="180">180</option><option value="190">190</option><option value="200">200</option></select></label>
+      <label class="opt"><span>Grafik</span><select id="optQuality" class="opt-select"><option value="high">Hoch</option><option value="medium" selected>Mittel</option><option value="low">Niedrig</option></select></label>
     </div>
     <button class="primary" id="btnStart">Gefecht starten</button>
     <button class="secondary" id="btnFull">Vollbild</button>
