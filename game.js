@@ -690,7 +690,7 @@ joystick($('joyAim'),(x,y,on)=>{ input.ax=x; input.az=y; input.aimHeld=on; input
 // Wischen zum Umsehen (Touch oder Maus ohne Pointer Lock)
 let swipe=null;
 canvas.addEventListener('pointerdown',e=>{ if(e.pointerType==='touch') isTouchPointer=true; if(state.phase!=='play') return; if(e.pointerType==='mouse'&&document.pointerLockElement===canvas) return; swipe={id:e.pointerId,x:e.clientX,y:e.clientY}; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointermove',e=>{ if(!swipe||e.pointerId!==swipe.id) return; const dx=e.clientX-swipe.x, dy=e.clientY-swipe.y; swipe.x=e.clientX; swipe.y=e.clientY; const s=state.sens*.0011; cam.yaw-=dx*s; if(aimRef!==null) aimRef-=dx*s; cam.pitch=Math.max(-PITCH_MAX,Math.min(PITCH_MAX,cam.pitch-dy*s*.6)); });
+canvas.addEventListener('pointermove',e=>{ if(!swipe||e.pointerId!==swipe.id) return; const dx=e.clientX-swipe.x, dy=e.clientY-swipe.y; swipe.x=e.clientX; swipe.y=e.clientY; const s=state.sens*.0011; cam.yaw-=dx*s; if(aimRef!==null) aimRef-=dx*s; cam.pitch=Math.max(-PITCH_MAX,Math.min(PITCH_MAX,cam.pitch+dy*s*.6)); });
 const endSwipe=e=>{ if(swipe&&e.pointerId===swipe.id) swipe=null; };
 canvas.addEventListener('pointerup',endSwipe); canvas.addEventListener('pointercancel',endSwipe);
 // Buttons
