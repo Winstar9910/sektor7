@@ -153,6 +153,8 @@ canvas#gl{position:fixed;inset:0;display:block}
 .tbtn{position:absolute;pointer-events:auto;width:56px;height:56px;border-radius:50%;background:var(--ink-80);border:1.5px solid rgba(232,220,184,.35);color:var(--paper);font-weight:700;font-size:12px;letter-spacing:.06em;display:flex;align-items:center;justify-content:center;touch-action:none}
 .tbtn:active{background:var(--paper);color:var(--ink)}
 #btnJump{right:calc(178px + var(--safe-r));bottom:calc(36px + var(--safe-b));font-size:22px;line-height:1}
+#btnCrouch{left:calc(178px + var(--safe-l));bottom:calc(36px + var(--safe-b));font-size:22px;line-height:1}
+#btnCrouch.on{background:var(--paper);color:var(--ink)}
 #btnSprint{right:calc(246px + var(--safe-r));bottom:calc(70px + var(--safe-b));font-size:20px;line-height:1}
 #btnSprint .ring{position:absolute;left:-5px;top:-5px;width:66px;height:66px;pointer-events:none;overflow:visible}
 #btnSprint .ring circle{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;opacity:.92;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
