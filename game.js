@@ -744,7 +744,6 @@ if(wwEl){
   });
 }
 $('btnHeli').addEventListener('click',callHeli); $('btnNuke').addEventListener('click',launchNuke);
-$('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
 $('btnJump').addEventListener('pointerdown',e=>{ e.preventDefault(); input.jump=true; });
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 // Overlays dürfen keine Spielsteuerung auslösen
