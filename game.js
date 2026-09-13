@@ -508,7 +508,7 @@ const weapons={
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff},
   pistol: {name:'Pistol',  cooldown:.38, damage:22, speed:90, pellets:1,spread:.014,mag:12,reload:1.4,auto:false,range:45, kick:.7,tracer:0xffcc80}
 };
-const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6, weaponDrop:false };
+const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6 };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 setGunModel(player.mesh, player.weapon);
@@ -764,7 +764,7 @@ function damage(target,amount,attacker){
   target.hp-=amount; target.lastHit=state.time;
   if(target===player){ hurtFlash(attacker); Audio.hurt(); state.shake=Math.max(state.shake,.35); }
   if(attacker===player){ UI.hitmark(target.hp<=0); Audio.hit(target.hp<=0); }
-  if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); if(state.weaponDrop && typeof spawnWeaponPickup==='function' && target!==player){ const _wKeys=['pistol','ak','shotgun','sniper']; const _w=_wKeys[(Math.random()*_wKeys.length)|0]; spawnWeaponPickup(target.x,target.z,_w); } burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
+  if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); if(typeof spawnWeaponPickup==='function' && target!==player){ const _wKeys=['pistol','ak','shotgun','sniper']; const _w=_wKeys[(Math.random()*_wKeys.length)|0]; spawnWeaponPickup(target.x,target.z,_w); } burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
     if(target===player){ player.deaths++; player.streak=0; UI.streak(); UI.death(attacker); }
     if(attacker===player){ player.kills++; player.streak++; player.bestStreak=Math.max(player.bestStreak,player.streak); UI.streak(); if(player.streak===3) UI.toast('Helikopter bereit'); if(player.streak===7) UI.toast('Nuke bereit'); }
     const scoringTeam= target.team==='red'?'blue':'red';
@@ -1571,7 +1571,7 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='pistol'; setGunModel(player.mesh,'pistol'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons.pistol.mag; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; const _sw=state.weaponDrop?'pistol':'ak'; player.weapon=_sw; setGunModel(player.mesh,_sw); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons[_sw].mag; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
@@ -1594,9 +1594,10 @@ function endMatch(win,reason){
 }
 function startMatch(){
   if(window.__showIntro) window.__showIntro();
-  player.weapon='pistol'; player.mag=weapons.pistol.mag; player.reloading=0; if(player.mesh) setGunModel(player.mesh,'pistol');
-  setTimeout(()=>{ try{ UI.toast('Pistole zum Start. An Waffenblasen Aufnehmen bestaetigen (E).'); }catch(e){} }, 1600);
-  Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.weaponDrop=$('optWeaponDrop').checked; state.sens=+$('optSens').value;
+  const _drop=$('optWeaponDrop')?.checked; const _startW=_drop?'pistol':'ak';
+  player.weapon=_startW; player.mag=weapons[_startW].mag; player.reloading=0; if(player.mesh) setGunModel(player.mesh,_startW);
+  setTimeout(()=>{ try{ UI.toast(_drop? 'Pistole zum Start. An Waffenblasen Aufnehmen bestaetigen (E).' : 'AK-47 zum Start. Kein Waffendrop aktiv.'); }catch(e){} }, 1600);
+  Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.sens=+$('optSens').value;
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });
   GOAL=Math.max(10,Math.min(200,+$('optGoal').value||30));
