@@ -322,6 +322,12 @@ function makeCharacter(team,isPlayer=false){
   weste.position.set(0,.88,.02); weste.scale.set(1,1,.78); weste.castShadow=true; upper.add(weste);
   const rucksack=new THREE.Mesh(new THREE.BoxGeometry(.78,.74,.34),gurtMat);
   rucksack.position.set(0,.95,-.40); rucksack.castShadow=true; upper.add(rucksack);
+  // Gürtel um die Hüfte
+  const guertel=new THREE.Mesh(new THREE.CylinderGeometry(.42,.42,.08,20,1,true),gurtMat);
+  guertel.position.set(0,.40,0); guertel.scale.set(1,1,.85); upper.add(guertel);
+  // Gürtelschnalle silber vorn
+  const schnalle=new THREE.Mesh(new THREE.BoxGeometry(.12,.09,.03),new THREE.MeshStandardMaterial({color:0xc4c8cc,roughness:.4,metalness:.85}));
+  schnalle.position.set(0,.40,.36); upper.add(schnalle);
   // Vier Mag-Pouches am Gürtel
   for(let i=0;i<4;i++){
     const p=new THREE.Mesh(new THREE.BoxGeometry(.16,.22,.13),pouchMat);
@@ -339,6 +345,14 @@ function makeCharacter(team,isPlayer=false){
   // Kinnpartie / Wangen – gibt dem Gesicht Volumen unter dem Visier
   const kinnP=new THREE.Mesh(new THREE.SphereGeometry(.22,14,10),skinMat);
   kinnP.position.set(0,.29,.16); kinnP.scale.set(1,.7,.75); neck.add(kinnP);
+  // Nase – kleine Erhebung im Gesicht
+  const nase=new THREE.Mesh(new THREE.SphereGeometry(.055,10,8),skinMat);
+  nase.position.set(0,.34,.27); nase.scale.set(.9,1.3,.9); neck.add(nase);
+  // Ohren links und rechts
+  for(const s of [-1,1]){
+    const ohr=new THREE.Mesh(new THREE.SphereGeometry(.07,10,8),skinMat);
+    ohr.position.set(s*.29,.38,-.02); ohr.scale.set(.55,1.2,.85); neck.add(ohr);
+  }
   // Größerer Fast-Helm
   const helm=new THREE.Mesh(new THREE.SphereGeometry(.38,20,12,0,Math.PI*2,0,Math.PI*.6),helmetMats[team]);
   helm.position.set(0,.40,0); helm.scale.set(1,1.06,1.14); helm.castShadow=true; neck.add(helm);
@@ -363,8 +377,19 @@ function makeCharacter(team,isPlayer=false){
     strebe(arm,uniMat,[0,-.04,0],[0,-.4,.15],.17);        // Oberarm
     kugel(arm,uniMat,0,-.4,.14,.15);                      // Ellbogen sichtbar
     strebe(arm,uniMat,[0,-.4,.16],[-seite*.14,-.5,greifZ],.145);  // Unterarm
-    const hand=new THREE.Mesh(new THREE.BoxGeometry(.22,.23,.23),teamMats[team]);
-    hand.position.set(-seite*.15,-.52,greifZ+.02); arm.add(hand);
+    // Hand mit Handfläche, vier Fingern und Daumen
+    const handG=new THREE.Group(); handG.position.set(-seite*.15,-.52,greifZ+.02); arm.add(handG);
+    const handflaeche=new THREE.Mesh(new THREE.BoxGeometry(.20,.22,.16),teamMats[team]);
+    handG.add(handflaeche);
+    // vier Finger nach vorn
+    for(let f=0;f<4;f++){
+      const finger=new THREE.Mesh(new THREE.BoxGeometry(.038,.19,.10),teamMats[team]);
+      finger.position.set(-.075+f*.05, .00, .13);
+      handG.add(finger);
+    }
+    // Daumen zur Seite
+    const daumen=new THREE.Mesh(new THREE.BoxGeometry(.05,.10,.09),teamMats[team]);
+    daumen.position.set(seite*.11, -.06, .04); handG.add(daumen);
     return arm;
   };
   const armR=armGrp(1,.44);
@@ -544,13 +569,21 @@ for(let i=0;i<6;i++) createBot('red',i);
 
 // Waffen-Pickup: blaue GTA-Blase mit rotierender Waffe drin
 const weaponPickups=[];
-const pickupBubbleMat=new THREE.MeshBasicMaterial({color:0x5cb1ff,transparent:true,opacity:.28,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-const pickupRingMat=new THREE.MeshBasicMaterial({color:0x9bd0ff,transparent:true,opacity:.55,blending:THREE.AdditiveBlending,depthWrite:false});
+const PICKUP_COLORS={pistol:0x4ade80, ak:0xfb923c, shotgun:0xef4444, sniper:0x60a5fa};
+const PICKUP_COLORS_LIGHT={pistol:0x86efac, ak:0xfdba74, shotgun:0xfca5a5, sniper:0x93c5fd};
 const pickupGunMat=new THREE.MeshStandardMaterial({color:0xdedee6,roughness:.35,metalness:.7,emissive:0x1a3550,emissiveIntensity:.7});
+function _pickupBubbleMat(key){
+  const c=PICKUP_COLORS[key]||0x5cb1ff;
+  return new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.32,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+}
+function _pickupRingMat(key){
+  const c=PICKUP_COLORS_LIGHT[key]||0x9bd0ff;
+  return new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.7,blending:THREE.AdditiveBlending,depthWrite:false});
+}
 function spawnWeaponPickup(x,z,weaponKey){
   const g=new THREE.Group(); g.position.set(x,1.4,z);
-  const bubble=new THREE.Mesh(new THREE.SphereGeometry(.80,22,16),pickupBubbleMat); g.add(bubble);
-  const ring=new THREE.Mesh(new THREE.TorusGeometry(.70,.04,10,36),pickupRingMat); ring.rotation.x=Math.PI/2; g.add(ring);
+  const bubble=new THREE.Mesh(new THREE.SphereGeometry(.80,22,16),_pickupBubbleMat(weaponKey)); g.add(bubble);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.70,.04,10,36),_pickupRingMat(weaponKey)); ring.rotation.x=Math.PI/2; g.add(ring);
   const shape=GUNSHAPE[weaponKey]||GUNSHAPE.ak;
   const gun=new THREE.Group();
   const barrel=new THREE.Mesh(new THREE.BoxGeometry(.15*shape.thick,.18*shape.thick,.85*shape.len),pickupGunMat); barrel.position.z=.15; gun.add(barrel);
@@ -573,15 +606,29 @@ function tryPickupWeapon(){
 }
 (function pickupTick(){
   let last=performance.now();
+  let lastHintName=null, lastHintT=0;
   function tick(now){
     const dt=Math.min(.05,(now-last)/1000); last=now;
+    let nearest=null, nd=2.6;
     for(const p of weaponPickups){
       p.gunMesh.rotation.y += dt*1.7;
       p.group.position.y = 1.4 + Math.sin((now-p.born)*.0025)*.14;
       const s=1 + Math.sin(now*.004)*.06;
       p.bubble.scale.setScalar(s);
       p.ring.rotation.z += dt*.6;
+      if(player&&player.alive){
+        const d=Math.hypot(p.x-player.x,p.z-player.z);
+        if(d<nd){ nd=d; nearest=p; }
+      }
     }
+    // Sanfter Hint wenn Waffe in Reichweite
+    if(nearest && weapons[nearest.weapon]){
+      const nm=weapons[nearest.weapon].name;
+      if(nm!==lastHintName || now-lastHintT>2400){
+        lastHintName=nm; lastHintT=now;
+        try{ UI.toast(`E: ${nm} aufheben`); }catch(e){}
+      }
+    } else { lastHintName=null; }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -686,7 +733,7 @@ function damage(target,amount,attacker){
   target.hp-=amount; target.lastHit=state.time;
   if(target===player){ hurtFlash(attacker); Audio.hurt(); state.shake=Math.max(state.shake,.35); }
   if(attacker===player){ UI.hitmark(target.hp<=0); Audio.hit(target.hp<=0); }
-  if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); if(typeof spawnWeaponPickup==='function' && target!==player) spawnWeaponPickup(target.x,target.z,target.weapon||'ak'); burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
+  if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); if(typeof spawnWeaponPickup==='function' && target!==player){ const _wKeys=['pistol','ak','shotgun','sniper']; const _w=_wKeys[(Math.random()*_wKeys.length)|0]; spawnWeaponPickup(target.x,target.z,_w); } burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
     if(target===player){ player.deaths++; player.streak=0; UI.streak(); UI.death(attacker); }
     if(attacker===player){ player.kills++; player.streak++; player.bestStreak=Math.max(player.bestStreak,player.streak); UI.streak(); if(player.streak===3) UI.toast('Helikopter bereit'); if(player.streak===7) UI.toast('Nuke bereit'); }
     const scoringTeam= target.team==='red'?'blue':'red';
@@ -925,16 +972,16 @@ const UI={
    ====================================================================== */
 const input={ mx:0,mz:0, ax:0,az:0, fire:false, jump:false, sprintTap:false, crouchTap:false, keys:{}, aimStick:false, aimHeld:false };
 addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if(state.phase!=='play') return;
-  if(e.code==='Digit1') selectWeapon('ak'); if(e.code==='Digit2') selectWeapon('shotgun'); if(e.code==='Digit3') selectWeapon('sniper');
-  if(e.code==='Tab'){ e.preventDefault(); openWeaponWheel(); }
+  /* Waffenwechsel nur noch per Pickup (E) */
+  if(e.code==='Tab'){ e.preventDefault(); /* Waffenrad deaktiviert */ }
   if(e.code==='KeyV') toggleFpv();
   if(e.code==='Space'){ input.jump=true; e.preventDefault(); }
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.sprintTap=true;
   if(e.code==='ControlLeft'||e.code==='ControlRight'||e.code==='KeyC'){ input.crouchTap=true; e.preventDefault(); }
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); if(e.code==='KeyE') tryPickupWeapon(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
-// Mausrad: Waffe wechseln
-addEventListener('wheel',e=>{ if(state.phase!=='play') return; const wl=['ak','shotgun','sniper']; let i=wl.indexOf(player.weapon); i= e.deltaY>0? (i+1)%3 : (i+2)%3; selectWeapon(wl[i]); },{passive:true});
+// Mausrad-Waffenwechsel deaktiviert - Waffen nur per Pickup
+addEventListener('wheel',e=>{ if(state.phase!=='play') return; /* deaktiviert */ const wl=['ak','shotgun','sniper']; let i=wl.indexOf(player.weapon); i= e.deltaY>0? (i+1)%3 : (i+2)%3; selectWeapon(wl[i]); },{passive:true});
 addEventListener('blur',()=>{ input.keys={}; input.fire=false; input.jump=false; input.sprintTap=false; input.crouchTap=false; });
 
 // Maus

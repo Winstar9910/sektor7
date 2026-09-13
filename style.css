@@ -246,3 +246,24 @@ canvas#gl{position:fixed;inset:0;display:block}
 .intro-sub{margin-top:16px;font-family:'Saira Condensed',sans-serif;font-size:22px;letter-spacing:8px;color:#c8b787;text-transform:uppercase;opacity:.85;animation:introFade 1.4s ease-out .3s both}
 @keyframes introScale{0%{transform:scale(.85);opacity:0;filter:blur(6px)}50%{transform:scale(1.02);opacity:1;filter:blur(0)}100%{transform:scale(1);opacity:1}}
 @keyframes introFade{0%{opacity:0;transform:translateY(10px)}100%{opacity:.85;transform:translateY(0)}}
+
+
+/* ==================== Step-by-Step: kompakteres Menü + Waffenbar aus ==================== */
+#weaponBar,#weaponWheel{display:none!important}
+
+/* Startmenü noch enger für "eine Karte ohne Scrollen" */
+.sheet-slim{max-width:400px;padding:22px 26px 22px}
+.sheet-slim .brand{margin:2px 0 16px;font-size:56px;letter-spacing:4px}
+.sheet-slim .brand-glyph{padding:1px 8px;border-width:2px;transform:translateY(-4px)}
+.sheet-slim .modes{margin-bottom:12px;gap:8px}
+.sheet-slim .mode{padding:11px 10px;border-radius:12px}
+.sheet-slim .mode b{font-size:14px}
+.sheet-slim .primary,.sheet-slim .secondary{padding:12px;font-size:15px;margin-top:8px;border-radius:12px}
+.gear{width:36px;height:36px;top:10px;right:10px}
+.gear svg{width:18px;height:18px}
+
+/* Popup-Content nicht zu breit auf Desktop, gute Lesbarkeit */
+.popup-content{max-width:520px;padding:24px 24px}
+.popup-content h2{font-size:22px;margin-bottom:14px}
+.popup-content .options{gap:8px;margin-bottom:12px}
+.popup-content .controls-grid{gap:6px;font-size:12px}
