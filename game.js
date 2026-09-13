@@ -294,73 +294,77 @@ const BEIN_HALB=.75;   // halbe Beinlänge, Hüfte 1.5 -> Sohle 0
 function makeCharacter(team,isPlayer=false){
   const g=new THREE.Group();
 
-  // --- Beine: Oberschenkel, Knie, Schienbein, Stiefel ---
+  // --- Beine: menschliche Proportionen, deutlich kräftiger ---
   const beinGrp=(seite)=>{
-    const hip=new THREE.Group(); hip.position.set(seite*.24,1.5,0); g.add(hip);
+    const hip=new THREE.Group(); hip.position.set(seite*.28,1.5,0); g.add(hip);
     const bein=new THREE.Group(); bein.position.y=-BEIN_HALB; hip.add(bein);
-    // lokal: +.75 ist die Hüfte, -.75 die Sohle
-    strebe(bein,uniMat,[0,.72,0],[0,.06,.02],.165);      // Oberschenkel
-    kugel(bein,uniMat,0,.04,.02,.145);                   // Knie
-    // SWAT-Kniepolster in Teamfarbe – vorne aufs Knie
-    const knieP=new THREE.Mesh(new THREE.SphereGeometry(.18,14,9),teamMats[team]);
-    knieP.position.set(0,.02,.09); knieP.scale.set(1.05,.80,.55); knieP.castShadow=true; bein.add(knieP);
-    strebe(bein,uniMat,[0,.02,.02],[0,-.56,-.02],.135);  // Schienbein
-    const stiefel=new THREE.Mesh(G.stiefel,lederMat); stiefel.position.set(0,-.65,.07); stiefel.castShadow=true; bein.add(stiefel);
-    // Stiefelkappe in Teamfarbe vorne dran
-    const stkap=new THREE.Mesh(new THREE.BoxGeometry(.30,.10,.20),teamMats[team]);
-    stkap.position.set(0,-.66,.24); bein.add(stkap);
+    strebe(bein,uniMat,[0,.72,0],[0,.06,.02],.22);       // dicker Oberschenkel
+    kugel(bein,uniMat,0,.04,.02,.20);                    // volleres Knie
+    // SWAT-Kniepolster in Teamfarbe – aufs Knie geschnallt
+    const knieP=new THREE.Mesh(new THREE.SphereGeometry(.23,16,10),teamMats[team]);
+    knieP.position.set(0,.02,.13); knieP.scale.set(1.15,.85,.55); knieP.castShadow=true; bein.add(knieP);
+    strebe(bein,uniMat,[0,.02,.02],[0,-.56,-.02],.19);   // dickeres Schienbein
+    // Kräftigerer Stiefel
+    const stiefel=new THREE.Mesh(new THREE.BoxGeometry(.36,.25,.62),lederMat);
+    stiefel.position.set(0,-.66,.10); stiefel.castShadow=true; bein.add(stiefel);
+    const stkap=new THREE.Mesh(new THREE.BoxGeometry(.37,.16,.24),teamMats[team]);
+    stkap.position.set(0,-.66,.31); bein.add(stkap);
     return {hip,bein};
   };
   const L=beinGrp(-1), R=beinGrp(1);
 
-  // --- Oberkörper: Becken, Bauch, Brust, Weste ---
+  // --- Oberkörper: massiver, menschlich proportioniert ---
   const upper=new THREE.Group(); upper.position.set(0,1.45,0); g.add(upper);
-  strebe(upper,uniMat,[0,.05,0],[0,.5,0],.3);            // Becken und Bauch
-  strebe(upper,uniMat,[0,.5,0],[0,1.24,0],.34);          // Brustkorb
-  const weste=new THREE.Mesh(new THREE.CapsuleGeometry(.37,.58,5,10),westeMat);
-  weste.position.set(0,.85,.01); weste.scale.set(1,1,.76); weste.castShadow=true; upper.add(weste);
-  const rucksack=new THREE.Mesh(G.rucksack,gurtMat); rucksack.position.set(0,.92,-.33); rucksack.castShadow=true; upper.add(rucksack);
-  // Vier Mag-Pouches vorne am Gürtel
+  strebe(upper,uniMat,[0,.05,0],[0,.5,0],.38);           // breiter Unterleib
+  strebe(upper,uniMat,[0,.5,0],[0,1.24,0],.44);          // breiter Brustkorb
+  // Große taktische Weste
+  const weste=new THREE.Mesh(new THREE.CapsuleGeometry(.48,.66,6,12),westeMat);
+  weste.position.set(0,.88,.02); weste.scale.set(1,1,.78); weste.castShadow=true; upper.add(weste);
+  const rucksack=new THREE.Mesh(new THREE.BoxGeometry(.78,.74,.34),gurtMat);
+  rucksack.position.set(0,.95,-.40); rucksack.castShadow=true; upper.add(rucksack);
+  // Vier Mag-Pouches am Gürtel
   for(let i=0;i<4;i++){
-    const p=new THREE.Mesh(new THREE.BoxGeometry(.13,.16,.10),pouchMat);
-    p.position.set(-.24+i*.16,.60,.30); p.castShadow=true; upper.add(p);
+    const p=new THREE.Mesh(new THREE.BoxGeometry(.16,.22,.13),pouchMat);
+    p.position.set(-.28+i*.19,.55,.38); p.castShadow=true; upper.add(p);
   }
-  // SWAT-Label auf der Brust (weiße Plakette)
-  const swatL=new THREE.Mesh(new THREE.BoxGeometry(.28,.09,.02),swatLabelMat);
-  swatL.position.set(0,1.02,.32); upper.add(swatL);
-  // Der Spieler trägt zusätzlich ein farbiges Wappen unter dem Label
-  if(isPlayer){ const w=new THREE.Mesh(G.tasche,teamMats[team]); w.position.set(0,.90,.34); w.scale.set(1.2,.55,.4); upper.add(w); }
+  // SWAT-Label auf der Brust
+  const swatL=new THREE.Mesh(new THREE.BoxGeometry(.34,.12,.02),swatLabelMat);
+  swatL.position.set(0,1.04,.44); upper.add(swatL);
+  if(isPlayer){ const w=new THREE.Mesh(G.tasche,teamMats[team]); w.position.set(0,.90,.46); w.scale.set(1.4,.6,.4); upper.add(w); }
 
-  // --- Hals und Kopf mit Helm ---
+  // --- Hals + Kopf mit Gesicht und Helm ---
   const neck=new THREE.Group(); neck.position.set(0,1.38,0); upper.add(neck);
-  strebe(neck,skinMat,[0,-.12,0],[0,.12,-.01],.11,false);
-  const kopf=kugel(neck,skinMat,0,.34,.02,.26,true); kopf.scale.set(.92,1.1,1);
-  const helm=new THREE.Mesh(new THREE.SphereGeometry(.33,16,10,0,Math.PI*2,0,Math.PI*.6),helmetMats[team]);
-  helm.position.set(0,.32,0); helm.scale.set(1,1.02,1.10); helm.castShadow=true; neck.add(helm);
-  const visier=new THREE.Mesh(new THREE.BoxGeometry(.46,.14,.09),visierMat);
-  visier.position.set(0,.34,.23); neck.add(visier);
-  // Kinnbügel unter dem Visier
-  const kinn=new THREE.Mesh(new THREE.BoxGeometry(.42,.10,.06),uniMat);
-  kinn.position.set(0,.23,.22); neck.add(kinn);
-  // Nackenschutz hinten am Helm
-  const nackS=new THREE.Mesh(new THREE.SphereGeometry(.30,12,7),helmetMats[team]);
-  nackS.position.set(0,.26,-.14); nackS.scale.set(1.0,.55,.55); neck.add(nackS);
-  // Seitenschienen in Teamfarbe (Fast-Helm-Look)
+  strebe(neck,skinMat,[0,-.10,0],[0,.16,-.01],.16,false);    // kräftiger Hals
+  const kopf=kugel(neck,skinMat,0,.40,.02,.30,true); kopf.scale.set(.96,1.12,1.02);
+  // Kinnpartie / Wangen – gibt dem Gesicht Volumen unter dem Visier
+  const kinnP=new THREE.Mesh(new THREE.SphereGeometry(.22,14,10),skinMat);
+  kinnP.position.set(0,.29,.16); kinnP.scale.set(1,.7,.75); neck.add(kinnP);
+  // Größerer Fast-Helm
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(.38,20,12,0,Math.PI*2,0,Math.PI*.6),helmetMats[team]);
+  helm.position.set(0,.40,0); helm.scale.set(1,1.06,1.14); helm.castShadow=true; neck.add(helm);
+  const visier=new THREE.Mesh(new THREE.BoxGeometry(.52,.16,.10),visierMat);
+  visier.position.set(0,.40,.29); neck.add(visier);
+  const kinn=new THREE.Mesh(new THREE.BoxGeometry(.48,.11,.08),uniMat);
+  kinn.position.set(0,.26,.27); neck.add(kinn);
+  const nackS=new THREE.Mesh(new THREE.SphereGeometry(.34,14,8),helmetMats[team]);
+  nackS.position.set(0,.32,-.18); nackS.scale.set(1.05,.58,.58); neck.add(nackS);
   for(const s of [-1,1]){
-    const rail=new THREE.Mesh(new THREE.BoxGeometry(.045,.20,.16),teamMats[team]);
-    rail.position.set(s*.30,.32,.03); neck.add(rail);
+    const rail=new THREE.Mesh(new THREE.BoxGeometry(.05,.24,.20),teamMats[team]);
+    rail.position.set(s*.34,.40,.04); neck.add(rail);
   }
 
-  // --- Arme: Schulter, Oberarm, Ellbogen, Unterarm, Hand ---
+  // --- Arme: breite Schultern, kräftige Muskeln, klare Gelenke ---
   const armGrp=(seite,greifZ)=>{
-    const arm=new THREE.Group(); arm.position.set(seite*.44,1.15,0); upper.add(arm);
-    kugel(arm,uniMat,0,0,0,.18,true);                     // Schulter
-    // Team-farbiges Schulterpolster obendrauf – die auffälligste Team-Signalfarbe
-    const schP=new THREE.Mesh(new THREE.SphereGeometry(.24,16,10),teamMats[team]);
-    schP.position.set(0,.06,0); schP.scale.set(1.15,.65,1.15); schP.castShadow=true; arm.add(schP);
-    strebe(arm,uniMat,[0,-.04,0],[0,-.4,.15],.14);        // Oberarm
-    strebe(arm,uniMat,[0,-.4,.16],[-seite*.14,-.5,greifZ],.115);  // Unterarm zur Waffe
-    const hand=new THREE.Mesh(G.hand,teamMats[team]); hand.position.set(-seite*.15,-.52,greifZ+.02); arm.add(hand);
+    const arm=new THREE.Group(); arm.position.set(seite*.50,1.15,0); upper.add(arm);
+    kugel(arm,uniMat,0,0,0,.24,true);                     // volle Schulter
+    // Team-farbiges Schulterpolster obendrauf
+    const schP=new THREE.Mesh(new THREE.SphereGeometry(.30,18,12),teamMats[team]);
+    schP.position.set(0,.09,0); schP.scale.set(1.2,.65,1.2); schP.castShadow=true; arm.add(schP);
+    strebe(arm,uniMat,[0,-.04,0],[0,-.4,.15],.17);        // Oberarm
+    kugel(arm,uniMat,0,-.4,.14,.15);                      // Ellbogen sichtbar
+    strebe(arm,uniMat,[0,-.4,.16],[-seite*.14,-.5,greifZ],.145);  // Unterarm
+    const hand=new THREE.Mesh(new THREE.BoxGeometry(.22,.23,.23),teamMats[team]);
+    hand.position.set(-seite*.15,-.52,greifZ+.02); arm.add(hand);
     return arm;
   };
   const armR=armGrp(1,.44);
@@ -386,7 +390,7 @@ const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const MAX_TWIST=.45;  // darüber dreht sich der ganze Körper mit, nicht nur der Oberkörper
 // Waffenformen – die Mündungsmarke sitzt immer am sichtbaren Lauf,
 // damit Mündungsfeuer und Kugel exakt dort entstehen, wo die Waffe hinzeigt.
-const GUNSHAPE={ ak:{len:1,thick:1,muz:1.02}, shotgun:{len:.82,thick:1.3,muz:.88}, sniper:{len:1.5,thick:.88,muz:1.45} };
+const GUNSHAPE={ ak:{len:1,thick:1,muz:1.02}, shotgun:{len:.82,thick:1.3,muz:.88}, sniper:{len:1.5,thick:.88,muz:1.45}, pistol:{len:.42,thick:.7,muz:.42} };
 function setGunModel(g,key){
   const u=g.userData; if(!u||!u.gun) return; const s=GUNSHAPE[key]||GUNSHAPE.ak;
   u.gun.scale.set(s.thick,s.thick,s.len); u.gun.position.z=.35*s.len;
@@ -476,11 +480,13 @@ let GOAL=30;   // im Startmenue einstellbar, 10 bis 200
 const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
-  sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff}
+  sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff},
+  pistol: {name:'Pistol',  cooldown:.22, damage:18, speed:80, pellets:1,spread:.020,mag:12,reload:1.4,auto:false,range:35, kick:.5,tracer:0xffcc80}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6 };
-const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, alive:true, respawn:0, invincible:0, weapon:'ak', shootTimer:0, mag:30, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
+const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:300, hpMax:300, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
+setGunModel(player.mesh, player.weapon);
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 
 const bots=[];
@@ -497,6 +503,20 @@ function createBot(team,i){
 }
 for(let i=0;i<5;i++) createBot('blue',i);
 for(let i=0;i<6;i++) createBot('red',i);
+
+// Rand-Vignette: rotes Randblinken bei niedriger HP (Warnung vor dem Tod)
+(function setupHurtVignette(){
+  const st=document.createElement('style');
+  st.textContent=`#hurt-vignette{position:fixed;inset:0;pointer-events:none;z-index:50;box-shadow:inset 0 0 260px 90px rgba(210,20,20,0.92), inset 0 0 500px 140px rgba(80,0,0,0.35);opacity:0;transition:opacity .18s ease-out;mix-blend-mode:multiply}body.hp-low #hurt-vignette{opacity:.55}body.hp-crit #hurt-vignette{opacity:.9;animation:hurtPulse .5s ease-in-out infinite}@keyframes hurtPulse{0%,100%{opacity:.55}50%{opacity:.95}}`;
+  document.head.appendChild(st);
+  const v=document.createElement('div'); v.id='hurt-vignette'; document.body.appendChild(v);
+  setInterval(()=>{
+    const hp=(player.alive?player.hp:0);
+    const c=document.body.classList;
+    c.toggle('hp-crit', hp>0 && hp<=90);
+    c.toggle('hp-low', hp>90 && hp<=180);
+  }, 100);
+})();
 
 function moveEntity(e,dx,dz){
   if(!blocked(e.x+dx,e.z,e.radius)) e.x+=dx;
