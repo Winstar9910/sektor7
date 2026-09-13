@@ -506,7 +506,7 @@ const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff},
-  pistol: {name:'Pistol',  cooldown:.22, damage:18, speed:80, pellets:1,spread:.020,mag:12,reload:1.4,auto:false,range:35, kick:.5,tracer:0xffcc80}
+  pistol: {name:'Pistol',  cooldown:.38, damage:22, speed:90, pellets:1,spread:.014,mag:12,reload:1.4,auto:false,range:45, kick:.7,tracer:0xffcc80}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6 };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:300, hpMax:300, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
@@ -606,29 +606,35 @@ function tryPickupWeapon(){
 }
 (function pickupTick(){
   let last=performance.now();
-  let lastHintName=null, lastHintT=0;
+  const PICKUP_RADIUS=1.7;   // Auto-Aufheben ab dieser Naehe
   function tick(now){
     const dt=Math.min(.05,(now-last)/1000); last=now;
-    let nearest=null, nd=2.6;
-    for(const p of weaponPickups){
+    for(let i=weaponPickups.length-1;i>=0;i--){
+      const p=weaponPickups[i];
       p.gunMesh.rotation.y += dt*1.7;
       p.group.position.y = 1.4 + Math.sin((now-p.born)*.0025)*.14;
       const s=1 + Math.sin(now*.004)*.06;
       p.bubble.scale.setScalar(s);
       p.ring.rotation.z += dt*.6;
+      // Auto-Pickup wenn Spieler durchlaeuft
       if(player&&player.alive){
         const d=Math.hypot(p.x-player.x,p.z-player.z);
-        if(d<nd){ nd=d; nearest=p; }
+        if(d<PICKUP_RADIUS && p.weapon!==player.weapon){
+          const key=p.weapon;
+          player.weapon=key; player.mag=weapons[key].mag; player.reloading=0;
+          setGunModel(player.mesh,key);
+          try{ UI.weapon(); UI.toast(`${weapons[key].name} aufgenommen`); }catch(e){}
+          try{ Audio.click(); }catch(e){}
+          scene.remove(p.group); weaponPickups.splice(i,1);
+        } else if(d<PICKUP_RADIUS && p.weapon===player.weapon){
+          // Gleiche Waffe: nur Munition auffuellen
+          player.mag=weapons[p.weapon].mag; player.reloading=0;
+          try{ UI.status(); UI.toast(`${weapons[p.weapon].name}: Munition aufgefuellt`); }catch(e){}
+          try{ Audio.click(); }catch(e){}
+          scene.remove(p.group); weaponPickups.splice(i,1);
+        }
       }
     }
-    // Sanfter Hint wenn Waffe in Reichweite
-    if(nearest && weapons[nearest.weapon]){
-      const nm=weapons[nearest.weapon].name;
-      if(nm!==lastHintName || now-lastHintT>2400){
-        lastHintName=nm; lastHintT=now;
-        try{ UI.toast(`E: ${nm} aufheben`); }catch(e){}
-      }
-    } else { lastHintName=null; }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -978,7 +984,7 @@ addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if
   if(e.code==='Space'){ input.jump=true; e.preventDefault(); }
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.sprintTap=true;
   if(e.code==='ControlLeft'||e.code==='ControlRight'||e.code==='KeyC'){ input.crouchTap=true; e.preventDefault(); }
-  if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); if(e.code==='KeyE') tryPickupWeapon(); });
+  if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad-Waffenwechsel deaktiviert - Waffen nur per Pickup
 addEventListener('wheel',e=>{ if(state.phase!=='play') return; /* deaktiviert */ const wl=['ak','shotgun','sniper']; let i=wl.indexOf(player.weapon); i= e.deltaY>0? (i+1)%3 : (i+2)%3; selectWeapon(wl[i]); },{passive:true});
@@ -1539,7 +1545,7 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=300; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=300; player.alive=true; player.invincible=2; player.weapon='pistol'; setGunModel(player.mesh,'pistol'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons.pistol.mag; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=300; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
@@ -1563,6 +1569,7 @@ function endMatch(win,reason){
 function startMatch(){
   if(window.__showIntro) window.__showIntro();
   player.weapon='pistol'; player.mag=weapons.pistol.mag; player.reloading=0; if(player.mesh) setGunModel(player.mesh,'pistol');
+  setTimeout(()=>{ try{ UI.toast('Du startest mit der Pistole. Bessere Waffen durch Blasen aufsammeln.'); }catch(e){} }, 1600);
   Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.sens=+$('optSens').value;
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });
