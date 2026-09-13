@@ -250,13 +250,15 @@ const skinMat=new THREE.MeshStandardMaterial({color:0xc98f65,roughness:.85});
 const gunMat=new THREE.MeshStandardMaterial({color:0x1c1c1c,roughness:.5,metalness:.6});
 const lederMat=new THREE.MeshStandardMaterial({color:0x241f19,roughness:.85});
 const gurtMat=new THREE.MeshStandardMaterial({color:0x3a3327,roughness:.9});
-const westeMat=new THREE.MeshStandardMaterial({color:0x3c4033,roughness:.92});
-const teamMats={ blue:new THREE.MeshStandardMaterial({color:0x3d6db8,roughness:.75}), red:new THREE.MeshStandardMaterial({color:0xb33a2a,roughness:.75}) };
-const uniMat=new THREE.MeshStandardMaterial({color:0x4f5741,roughness:.95});
+const westeMat=new THREE.MeshStandardMaterial({color:0x0a0b0d,roughness:.88});
+const teamMats={ blue:new THREE.MeshStandardMaterial({color:0x3d6db8,roughness:.55,metalness:.05}), red:new THREE.MeshStandardMaterial({color:0xb33a2a,roughness:.55,metalness:.05}) };
+const uniMat=new THREE.MeshStandardMaterial({color:0x121418,roughness:.85});
 const uniformMats={ blue:uniMat, red:uniMat };
-const helmetMats={ blue:new THREE.MeshStandardMaterial({color:0x3f6fc4,roughness:.6}),
-                   red:new THREE.MeshStandardMaterial({color:0xc2412e,roughness:.6}) };
-const visierMat=new THREE.MeshStandardMaterial({color:0x15171a,roughness:.3,metalness:.4});
+const helmetMats={ blue:new THREE.MeshStandardMaterial({color:0x3f6fc4,roughness:.5,metalness:.1}),
+                   red:new THREE.MeshStandardMaterial({color:0xc2412e,roughness:.5,metalness:.1}) };
+const visierMat=new THREE.MeshStandardMaterial({color:0x15171a,roughness:.25,metalness:.55});
+const pouchMat=new THREE.MeshStandardMaterial({color:0x1a1c1f,roughness:.85});
+const swatLabelMat=new THREE.MeshStandardMaterial({color:0xdcdcdc,roughness:.55});
 
 // Kapseln zwischen zwei Punkten – daraus bestehen Arme und Beine.
 // Die Geometrien werden nach Maß zwischengespeichert, damit alle Figuren dieselben teilen.
@@ -299,8 +301,14 @@ function makeCharacter(team,isPlayer=false){
     // lokal: +.75 ist die Hüfte, -.75 die Sohle
     strebe(bein,uniMat,[0,.72,0],[0,.06,.02],.165);      // Oberschenkel
     kugel(bein,uniMat,0,.04,.02,.145);                   // Knie
+    // SWAT-Kniepolster in Teamfarbe – vorne aufs Knie
+    const knieP=new THREE.Mesh(new THREE.SphereGeometry(.18,14,9),teamMats[team]);
+    knieP.position.set(0,.02,.09); knieP.scale.set(1.05,.80,.55); knieP.castShadow=true; bein.add(knieP);
     strebe(bein,uniMat,[0,.02,.02],[0,-.56,-.02],.135);  // Schienbein
     const stiefel=new THREE.Mesh(G.stiefel,lederMat); stiefel.position.set(0,-.65,.07); stiefel.castShadow=true; bein.add(stiefel);
+    // Stiefelkappe in Teamfarbe vorne dran
+    const stkap=new THREE.Mesh(new THREE.BoxGeometry(.30,.10,.20),teamMats[team]);
+    stkap.position.set(0,-.66,.24); bein.add(stkap);
     return {hip,bein};
   };
   const L=beinGrp(-1), R=beinGrp(1);
@@ -312,25 +320,47 @@ function makeCharacter(team,isPlayer=false){
   const weste=new THREE.Mesh(new THREE.CapsuleGeometry(.37,.58,5,10),westeMat);
   weste.position.set(0,.85,.01); weste.scale.set(1,1,.76); weste.castShadow=true; upper.add(weste);
   const rucksack=new THREE.Mesh(G.rucksack,gurtMat); rucksack.position.set(0,.92,-.33); rucksack.castShadow=true; upper.add(rucksack);
-  // Der Spieler trägt ein farbiges Wappen, damit man sich selbst erkennt
-  if(isPlayer){ const w=new THREE.Mesh(G.tasche,teamMats[team]); w.position.set(0,1.0,.33); w.scale.set(1.2,.7,.4); upper.add(w); }
+  // Vier Mag-Pouches vorne am Gürtel
+  for(let i=0;i<4;i++){
+    const p=new THREE.Mesh(new THREE.BoxGeometry(.13,.16,.10),pouchMat);
+    p.position.set(-.24+i*.16,.60,.30); p.castShadow=true; upper.add(p);
+  }
+  // SWAT-Label auf der Brust (weiße Plakette)
+  const swatL=new THREE.Mesh(new THREE.BoxGeometry(.28,.09,.02),swatLabelMat);
+  swatL.position.set(0,1.02,.32); upper.add(swatL);
+  // Der Spieler trägt zusätzlich ein farbiges Wappen unter dem Label
+  if(isPlayer){ const w=new THREE.Mesh(G.tasche,teamMats[team]); w.position.set(0,.90,.34); w.scale.set(1.2,.55,.4); upper.add(w); }
 
   // --- Hals und Kopf mit Helm ---
   const neck=new THREE.Group(); neck.position.set(0,1.38,0); upper.add(neck);
   strebe(neck,skinMat,[0,-.12,0],[0,.12,-.01],.11,false);
   const kopf=kugel(neck,skinMat,0,.34,.02,.26,true); kopf.scale.set(.92,1.1,1);
-  const helm=new THREE.Mesh(new THREE.SphereGeometry(.31,14,9,0,Math.PI*2,0,Math.PI*.6),helmetMats[team]);
-  helm.position.set(0,.32,0); helm.scale.set(1,.98,1.08); helm.castShadow=true; neck.add(helm);
-  const visier=new THREE.Mesh(new THREE.BoxGeometry(.44,.11,.08),visierMat);
-  visier.position.set(0,.36,.22); neck.add(visier);
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(.33,16,10,0,Math.PI*2,0,Math.PI*.6),helmetMats[team]);
+  helm.position.set(0,.32,0); helm.scale.set(1,1.02,1.10); helm.castShadow=true; neck.add(helm);
+  const visier=new THREE.Mesh(new THREE.BoxGeometry(.46,.14,.09),visierMat);
+  visier.position.set(0,.34,.23); neck.add(visier);
+  // Kinnbügel unter dem Visier
+  const kinn=new THREE.Mesh(new THREE.BoxGeometry(.42,.10,.06),uniMat);
+  kinn.position.set(0,.23,.22); neck.add(kinn);
+  // Nackenschutz hinten am Helm
+  const nackS=new THREE.Mesh(new THREE.SphereGeometry(.30,12,7),helmetMats[team]);
+  nackS.position.set(0,.26,-.14); nackS.scale.set(1.0,.55,.55); neck.add(nackS);
+  // Seitenschienen in Teamfarbe (Fast-Helm-Look)
+  for(const s of [-1,1]){
+    const rail=new THREE.Mesh(new THREE.BoxGeometry(.045,.20,.16),teamMats[team]);
+    rail.position.set(s*.30,.32,.03); neck.add(rail);
+  }
 
   // --- Arme: Schulter, Oberarm, Ellbogen, Unterarm, Hand ---
   const armGrp=(seite,greifZ)=>{
     const arm=new THREE.Group(); arm.position.set(seite*.44,1.15,0); upper.add(arm);
     kugel(arm,uniMat,0,0,0,.18,true);                     // Schulter
+    // Team-farbiges Schulterpolster obendrauf – die auffälligste Team-Signalfarbe
+    const schP=new THREE.Mesh(new THREE.SphereGeometry(.24,16,10),teamMats[team]);
+    schP.position.set(0,.06,0); schP.scale.set(1.15,.65,1.15); schP.castShadow=true; arm.add(schP);
     strebe(arm,uniMat,[0,-.04,0],[0,-.4,.15],.14);        // Oberarm
     strebe(arm,uniMat,[0,-.4,.16],[-seite*.14,-.5,greifZ],.115);  // Unterarm zur Waffe
-    const hand=new THREE.Mesh(G.hand,lederMat); hand.position.set(-seite*.15,-.52,greifZ+.02); arm.add(hand);
+    const hand=new THREE.Mesh(G.hand,teamMats[team]); hand.position.set(-seite*.15,-.52,greifZ+.02); arm.add(hand);
     return arm;
   };
   const armR=armGrp(1,.44);
