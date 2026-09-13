@@ -509,7 +509,7 @@ const weapons={
   pistol: {name:'Pistol',  cooldown:.38, damage:22, speed:90, pellets:1,spread:.014,mag:12,reload:1.4,auto:false,range:45, kick:.7,tracer:0xffcc80}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6 };
-const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:300, hpMax:300, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
+const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 setGunModel(player.mesh, player.weapon);
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
@@ -523,7 +523,7 @@ function teamSpawn(team,i){
 }
 function createBot(team,i){
   const s=teamSpawn(team,i);
-  const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:300, hpMax:300, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, aimYaw:0, aimPitch:0, curSpeed:0, y:0, mesh:makeCharacter(team) };
+  const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:100, hpMax:100, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, aimYaw:0, aimPitch:0, curSpeed:0, y:0, mesh:makeCharacter(team) };
   b.mesh.position.set(b.x,0,b.z); scene.add(b.mesh); bots.push(b);
 }
 for(let i=0;i<5;i++) createBot('blue',i);
@@ -538,8 +538,8 @@ for(let i=0;i<6;i++) createBot('red',i);
   setInterval(()=>{
     const hp=(player.alive?player.hp:0);
     const c=document.body.classList;
-    c.toggle('hp-crit', hp>0 && hp<=30);
-    c.toggle('hp-low', hp>30 && hp<=100);
+    c.toggle('hp-crit', hp>0 && hp<=25);
+    c.toggle('hp-low', hp>25 && hp<=50);
   }, 100);
 })();
 
@@ -593,20 +593,62 @@ function spawnWeaponPickup(x,z,weaponKey){
   scene.add(g);
   weaponPickups.push({x,z,weapon:weaponKey,group:g,gunMesh:gun,bubble,ring,born:performance.now()});
 }
-function tryPickupWeapon(){
-  if(!player.alive) return;
-  let best=null,bd=2.6;
+const PICKUP_REICHWEITE=2.6;   // ab dieser Naehe erscheint die Aufhebe-Abfrage
+const pickupUI={el:null,name:null,btn:null,action:null,target:null,init:false};
+function pickupUIInit(){
+  if(pickupUI.init) return; pickupUI.init=true;
+  pickupUI.el=document.getElementById('pickupPrompt');
+  pickupUI.name=document.getElementById('ppName');
+  pickupUI.btn=document.getElementById('ppTake');
+  pickupUI.action=document.getElementById('ppAction');
+  if(pickupUI.btn) pickupUI.btn.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation(); tryPickupWeapon(); });
+}
+function zeigePickupAbfrage(p){
+  pickupUIInit(); if(!pickupUI.el) return;
+  const gleich=p.weapon===player.weapon;
+  if(pickupUI.target!==p || pickupUI.el.dataset.gleich!==String(gleich)){
+    pickupUI.target=p; pickupUI.el.dataset.gleich=String(gleich);
+    const w=weapons[p.weapon];
+    pickupUI.name.textContent=gleich? `${w.name} · Munition` : w.name;
+    pickupUI.action.textContent=gleich? 'Auffuellen' : 'Aufnehmen';
+  }
+  pickupUI.el.hidden=false; pickupUI.el.classList.add('show');
+}
+function versteckePickupAbfrage(){
+  pickupUIInit(); if(!pickupUI.el) return;
+  if(!pickupUI.target && pickupUI.el.hidden) return;
+  pickupUI.target=null; pickupUI.el.classList.remove('show'); pickupUI.el.hidden=true;
+}
+function aktualisierePickupAbfrage(){
+  if(!player||!player.alive||state.phase!=='play'){ versteckePickupAbfrage(); return; }
+  let best=null,bd=PICKUP_REICHWEITE;
   for(const p of weaponPickups){ const d=Math.hypot(p.x-player.x,p.z-player.z); if(d<bd){ bd=d; best=p; } }
+  if(best) zeigePickupAbfrage(best); else versteckePickupAbfrage();
+}
+// Aufheben passiert nur auf Bestaetigung: Button antippen oder E druecken
+function tryPickupWeapon(){
+  if(!player.alive||state.phase!=='play') return;
+  let best=pickupUI.target;
+  if(!best || weaponPickups.indexOf(best)<0){
+    best=null; let bd=PICKUP_REICHWEITE;
+    for(const p of weaponPickups){ const d=Math.hypot(p.x-player.x,p.z-player.z); if(d<bd){ bd=d; best=p; } }
+  }
   if(!best) return;
-  const key=best.weapon; if(key===player.weapon){ UI.toast('Selbe Waffe'); return; }
-  player.weapon=key; player.mag=weapons[key].mag; player.reloading=0;
-  setGunModel(player.mesh,key); UI.weapon(); UI.toast(`${weapons[key].name} aufgenommen`);
-  Audio.click();
+  const key=best.weapon;
+  if(key===player.weapon){
+    player.mag=weapons[key].mag; player.reloading=0;
+    try{ UI.status(); UI.toast(`${weapons[key].name}: Munition aufgefuellt`); }catch(e){}
+  } else {
+    player.weapon=key; player.mag=weapons[key].mag; player.reloading=0;
+    setGunModel(player.mesh,key);
+    try{ UI.weapon(); UI.status(); UI.toast(`${weapons[key].name} aufgenommen`); }catch(e){}
+  }
+  try{ Audio.click(); }catch(e){}
   scene.remove(best.group); const i=weaponPickups.indexOf(best); if(i>=0) weaponPickups.splice(i,1);
+  versteckePickupAbfrage();
 }
 (function pickupTick(){
   let last=performance.now();
-  const PICKUP_RADIUS=1.7;   // Auto-Aufheben ab dieser Naehe
   function tick(now){
     const dt=Math.min(.05,(now-last)/1000); last=now;
     for(let i=weaponPickups.length-1;i>=0;i--){
@@ -616,25 +658,8 @@ function tryPickupWeapon(){
       const s=1 + Math.sin(now*.004)*.06;
       p.bubble.scale.setScalar(s);
       p.ring.rotation.z += dt*.6;
-      // Auto-Pickup wenn Spieler durchlaeuft
-      if(player&&player.alive){
-        const d=Math.hypot(p.x-player.x,p.z-player.z);
-        if(d<PICKUP_RADIUS && p.weapon!==player.weapon){
-          const key=p.weapon;
-          player.weapon=key; player.mag=weapons[key].mag; player.reloading=0;
-          setGunModel(player.mesh,key);
-          try{ UI.weapon(); UI.toast(`${weapons[key].name} aufgenommen`); }catch(e){}
-          try{ Audio.click(); }catch(e){}
-          scene.remove(p.group); weaponPickups.splice(i,1);
-        } else if(d<PICKUP_RADIUS && p.weapon===player.weapon){
-          // Gleiche Waffe: nur Munition auffuellen
-          player.mag=weapons[p.weapon].mag; player.reloading=0;
-          try{ UI.status(); UI.toast(`${weapons[p.weapon].name}: Munition aufgefuellt`); }catch(e){}
-          try{ Audio.click(); }catch(e){}
-          scene.remove(p.group); weaponPickups.splice(i,1);
-        }
-      }
     }
+    aktualisierePickupAbfrage();
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -793,7 +818,7 @@ function findTarget(bot){
 }
 function updateBots(dt){
   for(const bot of bots){
-    if(!bot.alive){ bot.respawn-=dt; if(bot.respawn<=0){ bot.alive=true; bot.hp=300; bot.invincible=2; const s=teamSpawn(bot.team,bot.spawnIndex); bot.x=s.x; bot.z=s.z; bot.path=[]; bot.mesh.visible=true; bot.mesh.position.set(bot.x,0,bot.z); } continue; }
+    if(!bot.alive){ bot.respawn-=dt; if(bot.respawn<=0){ bot.alive=true; bot.hp=100; bot.invincible=2; const s=teamSpawn(bot.team,bot.spawnIndex); bot.x=s.x; bot.z=s.z; bot.path=[]; bot.mesh.visible=true; bot.mesh.position.set(bot.x,0,bot.z); } continue; }
     if(bot.invincible>0) bot.invincible-=dt;
     bot.shootTimer-=dt; bot.targetTimer-=dt; bot.pathTimer-=dt; bot.strafeTimer-=dt;
     if(bot.targetTimer<=0){ bot.target=findTarget(bot); bot.targetTimer=.3+Math.random()*.2; }
@@ -970,7 +995,7 @@ const UI={
   death(by){ this.center.hidden=false; this.centerTitle.textContent='Du bist gefallen'; this.centerSub.innerHTML=(by?`Von ${by.name} · `:'')+`Respawn in <b id="respawnN">4</b>`; this.hideCross(true); },
   respawn(){ this.center.hidden=true; this.hideCross(false); },
   weapon(){ const w=weapons[player.weapon]; this.weaponLabel.textContent=w.name; document.querySelectorAll('.wpn').forEach(b=>b.classList.toggle('active',b.dataset.w===player.weapon)); },
-  status(){ const hp=Math.ceil(player.hp); const hpMax=player.hpMax||300; this.hpNum.textContent=hp; this.hpFill.style.transform=`scaleX(${Math.max(0,player.hp)/hpMax})`; const cl=this.hpBar.classList; cl.remove('mid','low','crit'); if(hp<=30) cl.add('crit'); if(hp<=100) cl.add('low'); else if(hp<=200) cl.add('mid'); this.ammoMag.textContent=player.mag; this.reloadTag.classList.toggle('on',player.reloading>0); }
+  status(){ const hp=Math.ceil(player.hp); const hpMax=player.hpMax||100; this.hpNum.textContent=hp; this.hpFill.style.transform=`scaleX(${Math.max(0,player.hp)/hpMax})`; const cl=this.hpBar.classList; cl.remove('mid','low','crit'); if(hp<=25) cl.add('crit'); if(hp<=50) cl.add('low'); else if(hp<=75) cl.add('mid'); this.ammoMag.textContent=player.mag; this.reloadTag.classList.toggle('on',player.reloading>0); }
 };
 
 /* ======================================================================
@@ -984,6 +1009,7 @@ addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if
   if(e.code==='Space'){ input.jump=true; e.preventDefault(); }
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.sprintTap=true;
   if(e.code==='ControlLeft'||e.code==='ControlRight'||e.code==='KeyC'){ input.crouchTap=true; e.preventDefault(); }
+  if(e.code==='KeyE') tryPickupWeapon();
   if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad-Waffenwechsel deaktiviert - Waffen nur per Pickup
@@ -1107,7 +1133,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=300; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
       const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
@@ -1545,8 +1571,8 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=300; player.alive=true; player.invincible=2; player.weapon='pistol'; setGunModel(player.mesh,'pistol'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons.pistol.mag; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
-  bots.forEach(b=>{ b.alive=true; b.hp=300; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
+  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='pistol'; setGunModel(player.mesh,'pistol'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons.pistol.mag; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
   if(heli.active){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); }
@@ -1569,7 +1595,7 @@ function endMatch(win,reason){
 function startMatch(){
   if(window.__showIntro) window.__showIntro();
   player.weapon='pistol'; player.mag=weapons.pistol.mag; player.reloading=0; if(player.mesh) setGunModel(player.mesh,'pistol');
-  setTimeout(()=>{ try{ UI.toast('Du startest mit der Pistole. Bessere Waffen durch Blasen aufsammeln.'); }catch(e){} }, 1600);
+  setTimeout(()=>{ try{ UI.toast('Pistole zum Start. An Waffenblasen Aufnehmen bestaetigen (E).'); }catch(e){} }, 1600);
   Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.sens=+$('optSens').value;
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });

@@ -36,10 +36,14 @@
     <g class="hit"><line x1="12" y1="12" x2="17" y2="17"/><line x1="36" y1="12" x2="31" y2="17"/><line x1="12" y1="36" x2="17" y2="31"/><line x1="36" y1="36" x2="31" y2="31"/></g>
   </svg></div>
   <div id="toast"></div>
+  <div id="pickupPrompt" hidden>
+    <div id="ppName">AK-47</div>
+    <button id="ppTake"><span id="ppAction">Aufnehmen</span><kbd>E</kbd></button>
+  </div>
   <div id="center" hidden><h2 id="centerTitle"></h2><p id="centerSub"></p></div>
   <div class="hud-panel" id="status">
     <div id="reloadTag">Nachladen</div>
-    <div id="hpRow"><strong id="hpNum">300</strong><span>HP</span><span id="weaponLabel">Pistol</span></div>
+    <div id="hpRow"><strong id="hpNum">100</strong><span>HP</span><span id="weaponLabel">Pistol</span></div>
     <div id="hpBar"><i id="hpFill"></i></div>
     <div id="ammoRow"><strong id="ammoMag">12</strong><span>/ <span id="ammoRes">∞</span></span></div>
   </div>
@@ -120,7 +124,7 @@
       <div><b>Shift</b>Sprinten</div>
       <div><b>Strg / C</b>Ducken</div>
       <div><b>Maus</b>Umsehen · Klick feuert</div>
-      <div><b>Auto</b>Waffe drueberlaufen</div>
+      <div><b>E</b>Waffe aufnehmen</div>
       <div><b>R</b>Nachladen</div>
       
       <div><b>H · N</b>Heli · Nuke</div>
@@ -132,6 +136,7 @@
       <div><b>»</b>Sprinten</div>
       <div><b>⤓</b>Ducken</div>
       <div><b>👁</b>Ansicht wechseln</div>
+      <div><b>Aufnehmen</b>Waffe bestätigen</div>
     </div>
   </div>
 </div>
