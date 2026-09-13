@@ -195,3 +195,54 @@ canvas#gl{position:fixed;inset:0;display:block}
   #killfeed div:nth-child(n+4){display:none}
 }
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+
+/* ==================== SEKTOR 7 HP-Tiers, Menü, Intro ==================== */
+#hpBar i{background:linear-gradient(90deg,#4ade80,#22c55e)}
+#hpBar.mid i{background:linear-gradient(90deg,#facc15,#eab308)}
+#hpBar.low i{background:linear-gradient(90deg,#ef4444,#b91c1c)}
+#hpBar.crit i{background:linear-gradient(90deg,#ff2020,#991616);animation:hpCritBlink .5s ease-in-out infinite}
+@keyframes hpCritBlink{0%,100%{filter:brightness(1)}50%{filter:brightness(1.55) drop-shadow(0 0 8px rgba(255,40,40,.9))}}
+
+/* Schlankes Start-Sheet: nur Brand + 4 Buttons + Gear */
+.sheet-slim{max-width:520px;padding:36px 34px 30px;text-align:center;position:relative;background:linear-gradient(180deg,rgba(28,26,20,.96),rgba(20,18,14,.98));border:1px solid rgba(214,178,110,.25);border-radius:22px;box-shadow:0 30px 60px rgba(0,0,0,.55),0 0 0 1px rgba(214,178,110,.08) inset}
+.sheet-slim .brand{margin:8px 0 22px;font-family:'Allerta Stencil','Saira Condensed',sans-serif;font-size:76px;line-height:1;letter-spacing:6px;color:#f2e5c6;text-shadow:0 4px 0 rgba(0,0,0,.5),0 0 30px rgba(210,130,30,.25);display:flex;justify-content:center;align-items:baseline;gap:14px}
+.sheet-slim .brand-glyph{font-style:normal;font-size:.55em;color:#d19e4e;padding:2px 10px;border:2px solid #d19e4e;border-radius:6px;letter-spacing:0;transform:translateY(-6px)}
+.sheet-slim .modes{margin-bottom:18px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sheet-slim .mode{padding:14px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(214,178,110,.2);border-radius:14px;color:#e9dfc3;cursor:pointer;transition:all .15s}
+.sheet-slim .mode:hover{background:rgba(255,255,255,.09);border-color:rgba(214,178,110,.5)}
+.sheet-slim .mode.on{background:rgba(210,130,30,.15);border-color:#d19e4e;color:#f8ecc9}
+.sheet-slim .mode b{display:block;font-size:16px;font-weight:700;letter-spacing:.5px}
+.sheet-slim .primary,.sheet-slim .secondary{display:block;width:100%;margin-top:10px;padding:16px;border-radius:14px;font-family:inherit;font-size:17px;font-weight:700;cursor:pointer;letter-spacing:.4px;transition:transform .1s,box-shadow .15s}
+.sheet-slim .primary{background:linear-gradient(180deg,#e28a2c,#b26212);border:0;color:#fff;box-shadow:0 6px 0 #703a08,0 12px 18px rgba(0,0,0,.35)}
+.sheet-slim .primary:active{transform:translateY(3px);box-shadow:0 3px 0 #703a08,0 6px 10px rgba(0,0,0,.35)}
+.sheet-slim .secondary{background:rgba(255,255,255,.06);border:1px solid rgba(214,178,110,.25);color:#e9dfc3}
+.sheet-slim .secondary:hover{background:rgba(255,255,255,.11)}
+
+/* Gear-Button oben rechts */
+.gear{position:absolute;top:14px;right:14px;width:44px;height:44px;padding:0;background:rgba(255,255,255,.04);border:1px solid rgba(214,178,110,.25);border-radius:50%;color:#e9dfc3;cursor:pointer;display:grid;place-items:center;transition:transform .3s,background .15s,border-color .15s}
+.gear:hover{background:rgba(210,130,30,.15);border-color:#d19e4e;transform:rotate(45deg)}
+.gear svg{width:22px;height:22px}
+
+/* Optionen-Popup */
+.popup-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:grid;place-items:center;padding:20px}
+.popup-overlay[hidden]{display:none}
+.popup-content{position:relative;max-width:640px;width:100%;max-height:85vh;overflow-y:auto;padding:32px 30px;background:linear-gradient(180deg,rgba(28,26,20,.98),rgba(20,18,14,.99));border:1px solid rgba(214,178,110,.3);border-radius:20px;color:#e9dfc3;box-shadow:0 30px 60px rgba(0,0,0,.65)}
+.popup-content h2{margin:0 0 20px;font-family:'Allerta Stencil',sans-serif;font-size:28px;letter-spacing:3px;color:#f2e5c6}
+.popup-close{position:absolute;top:12px;right:12px;width:38px;height:38px;background:rgba(255,255,255,.05);border:1px solid rgba(214,178,110,.25);border-radius:50%;color:#e9dfc3;font-size:22px;font-weight:300;cursor:pointer;display:grid;place-items:center;line-height:1}
+.popup-close:hover{background:rgba(210,60,40,.3);border-color:#d14030}
+.popup-content .options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.popup-content .controls-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;padding-top:16px;border-top:1px solid rgba(214,178,110,.15)}
+.popup-content .controls-grid div{padding:6px 10px;background:rgba(255,255,255,.03);border-radius:8px}
+.popup-content .controls-grid b{color:#f2e5c6;margin-right:8px;display:inline-block;min-width:70px}
+
+/* Intro-Overlay – kurzer "SEKTOR 7" Fade beim Matchstart */
+#introOverlay{position:fixed;inset:0;z-index:300;background:radial-gradient(ellipse at center,rgba(20,16,10,.98),rgba(0,0,0,1));display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .35s ease-out}
+#introOverlay.on{opacity:1;pointer-events:auto}
+#introOverlay.off{opacity:0}
+.intro-inner{text-align:center}
+.intro-inner h1{margin:0;font-family:'Allerta Stencil',sans-serif;font-size:min(140px,20vw);letter-spacing:12px;color:#f2e5c6;text-shadow:0 0 60px rgba(210,130,30,.5),0 6px 0 rgba(0,0,0,.4);display:flex;justify-content:center;align-items:baseline;gap:22px;animation:introScale 1.4s ease-out}
+.intro-inner h1 i{font-style:normal;font-size:.55em;color:#e28a2c;padding:4px 16px;border:3px solid #e28a2c;border-radius:10px;letter-spacing:0}
+.intro-sub{margin-top:16px;font-family:'Saira Condensed',sans-serif;font-size:22px;letter-spacing:8px;color:#c8b787;text-transform:uppercase;opacity:.85;animation:introFade 1.4s ease-out .3s both}
+@keyframes introScale{0%{transform:scale(.85);opacity:0;filter:blur(6px)}50%{transform:scale(1.02);opacity:1;filter:blur(0)}100%{transform:scale(1);opacity:1}}
+@keyframes introFade{0%{opacity:0;transform:translateY(10px)}100%{opacity:.85;transform:translateY(0)}}

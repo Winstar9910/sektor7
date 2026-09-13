@@ -39,9 +39,9 @@
   <div id="center" hidden><h2 id="centerTitle"></h2><p id="centerSub"></p></div>
   <div class="hud-panel" id="status">
     <div id="reloadTag">Nachladen</div>
-    <div id="hpRow"><strong id="hpNum">100</strong><span>HP</span><span id="weaponLabel">AK-47</span></div>
+    <div id="hpRow"><strong id="hpNum">300</strong><span>HP</span><span id="weaponLabel">Pistol</span></div>
     <div id="hpBar"><i id="hpFill"></i></div>
-    <div id="ammoRow"><strong id="ammoMag">30</strong><span>/ <span id="ammoRes">∞</span></span></div>
+    <div id="ammoRow"><strong id="ammoMag">12</strong><span>/ <span id="ammoRes">∞</span></span></div>
   </div>
   <div class="hud-panel" id="streakBox">
     <div id="streakCount">Serie <b id="streakN">0</b></div>
@@ -88,33 +88,51 @@
 </div>
 <div id="hint"></div>
 <div class="screen" id="startScreen">
-  <div class="sheet">
-    <div class="stamp">Prototyp</div>
-    <h1>Sektor 7<small>Gegen Bots · erstes Team mit <b id="goalHint">30</b> <span id="goalUnit">Abschüssen</span> gewinnt</small></h1>
+  <div class="sheet sheet-slim">
+    <button class="gear" id="btnOptions" aria-label="Einstellungen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1l2.1-2.1M17 7l2.1-2.1"/></svg>
+    </button>
+    <h1 class="brand">SEKTOR<i class="brand-glyph">7</i></h1>
     <div class="modes">
-      <button class="mode on" id="modeQuick" data-mode="quick"><b>Schnelles Spiel</b><span>Team-Deathmatch, Panzer im Feld</span></button>
-      <button class="mode" id="modeFlag" data-mode="flag"><b>Flaggen</b><span>Gegnerflagge holen und heimbringen, keine Panzer</span></button>
+      <button class="mode on" id="modeQuick" data-mode="quick"><b>Schnelles Spiel</b></button>
+      <button class="mode" id="modeFlag" data-mode="flag"><b>Flaggen</b></button>
     </div>
-    <div class="controls-grid" id="ctrlDesktop">
-      <div><b>W A S D</b>Laufen</div><div><b>Leertaste</b>Springen und klettern</div><div><b>Shift</b>Sprinten</div><div><b>Strg / C</b>Ducken</div><div><b>Maus</b>Umsehen, Linksklick feuert</div>
-      <div><b>1 · 2 · 3 / Mausrad</b>Waffe wechseln</div><div><b>R</b>Nachladen</div>
-      <div><b>H · N</b>Helikopter · Nuke</div><div><b>Tab</b>Waffenrad</div>
-    </div>
-    <div class="controls-grid" id="ctrlTouch" hidden>
-      <div><b>Linker Stick</b>Laufen</div><div><b>Rechter Stick</b>Zielen und feuern</div>
-      <div><b>Wischen</b>Kamera drehen</div><div><b>⤒</b>Springen und klettern</div><div><b>»</b>Sprinten</div><div><b>⤓</b>Ducken</div>
-      <div><b>⚙</b>Waffenrad</div><div><b>👁</b>Ansicht wechseln</div>
-    </div>
+    <button class="primary" id="btnStart">Gefecht starten</button>
+    <button class="secondary" id="btnFull">Vollbild</button>
+    <span id="goalHint" hidden>30</span><span id="goalUnit" hidden>Abschüssen</span>
+  </div>
+</div>
+<div class="popup-overlay" id="optionsPopup" hidden>
+  <div class="popup-content">
+    <button class="popup-close" id="closeOptions" aria-label="Schließen">×</button>
+    <h2>Einstellungen</h2>
     <div class="options">
       <label class="opt"><span>Sound</span><input type="checkbox" id="optSound" checked></label>
       <label class="opt"><span>Blutspritzer</span><input type="checkbox" id="optSplash"></label>
       <label class="opt"><span>Zielhilfe (Touch)</span><input type="checkbox" id="optAssist" checked></label>
       <label class="opt"><span>Empfindlichkeit</span><input type="range" id="optSens" min="3" max="15" value="8"></label>
-      <label class="opt"><span>Punkte zum Sieg</span><select id="optGoal" class="opt-select"><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="40">40</option><option value="50">50</option><option value="60">60</option><option value="70">70</option><option value="80">80</option><option value="90">90</option><option value="100">100</option><option value="110">110</option><option value="120">120</option><option value="130">130</option><option value="140">140</option><option value="150">150</option><option value="160">160</option><option value="170">170</option><option value="180">180</option><option value="190">190</option><option value="200">200</option></select></label>
+      <label class="opt"><span>Punkte zum Sieg</span><select id="optGoal" class="opt-select"><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="40">40</option><option value="50">50</option><option value="70">70</option><option value="100">100</option><option value="150">150</option><option value="200">200</option></select></label>
       <label class="opt"><span>Grafik</span><select id="optQuality" class="opt-select"><option value="high">Hoch</option><option value="medium" selected>Mittel</option><option value="low">Niedrig</option></select></label>
     </div>
-    <button class="primary" id="btnStart">Gefecht starten</button>
-    <button class="secondary" id="btnFull">Vollbild</button>
+    <div class="controls-grid" id="ctrlDesktop">
+      <div><b>W A S D</b>Laufen</div>
+      <div><b>Leertaste</b>Springen</div>
+      <div><b>Shift</b>Sprinten</div>
+      <div><b>Strg / C</b>Ducken</div>
+      <div><b>Maus</b>Umsehen · Klick feuert</div>
+      <div><b>E</b>Waffe aufheben</div>
+      <div><b>R</b>Nachladen</div>
+      <div><b>1 · 2 · 3</b>Waffe wechseln</div>
+      <div><b>H · N</b>Heli · Nuke</div>
+    </div>
+    <div class="controls-grid" id="ctrlTouch" hidden>
+      <div><b>Linker Stick</b>Laufen</div>
+      <div><b>Rechter Stick</b>Zielen und feuern</div>
+      <div><b>⤒</b>Springen</div>
+      <div><b>»</b>Sprinten</div>
+      <div><b>⤓</b>Ducken</div>
+      <div><b>👁</b>Ansicht wechseln</div>
+    </div>
   </div>
 </div>
 <div class="screen" id="endScreen" hidden>

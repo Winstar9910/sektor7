@@ -498,7 +498,7 @@ function teamSpawn(team,i){
 }
 function createBot(team,i){
   const s=teamSpawn(team,i);
-  const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:100, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, aimYaw:0, aimPitch:0, curSpeed:0, y:0, mesh:makeCharacter(team) };
+  const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:300, hpMax:300, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, aimYaw:0, aimPitch:0, curSpeed:0, y:0, mesh:makeCharacter(team) };
   b.mesh.position.set(b.x,0,b.z); scene.add(b.mesh); bots.push(b);
 }
 for(let i=0;i<5;i++) createBot('blue',i);
@@ -507,15 +507,84 @@ for(let i=0;i<6;i++) createBot('red',i);
 // Rand-Vignette: rotes Randblinken bei niedriger HP (Warnung vor dem Tod)
 (function setupHurtVignette(){
   const st=document.createElement('style');
-  st.textContent=`#hurt-vignette{position:fixed;inset:0;pointer-events:none;z-index:50;box-shadow:inset 0 0 260px 90px rgba(210,20,20,0.92), inset 0 0 500px 140px rgba(80,0,0,0.35);opacity:0;transition:opacity .18s ease-out;mix-blend-mode:multiply}body.hp-low #hurt-vignette{opacity:.55}body.hp-crit #hurt-vignette{opacity:.9;animation:hurtPulse .5s ease-in-out infinite}@keyframes hurtPulse{0%,100%{opacity:.55}50%{opacity:.95}}`;
+  st.textContent=`#hurt-vignette{position:fixed;inset:0;pointer-events:none;z-index:50;box-shadow:inset 0 0 260px 90px rgba(210,20,20,0.92), inset 0 0 500px 140px rgba(80,0,0,0.35);opacity:0;transition:opacity .18s ease-out;mix-blend-mode:multiply}body.hp-low #hurt-vignette{opacity:.35}body.hp-crit #hurt-vignette{opacity:.9;animation:hurtPulse .45s ease-in-out infinite}@keyframes hurtPulse{0%,100%{opacity:.55}50%{opacity:.98}}`;
   document.head.appendChild(st);
   const v=document.createElement('div'); v.id='hurt-vignette'; document.body.appendChild(v);
   setInterval(()=>{
     const hp=(player.alive?player.hp:0);
     const c=document.body.classList;
-    c.toggle('hp-crit', hp>0 && hp<=90);
-    c.toggle('hp-low', hp>90 && hp<=180);
+    c.toggle('hp-crit', hp>0 && hp<=30);
+    c.toggle('hp-low', hp>30 && hp<=100);
   }, 100);
+})();
+
+// Intro-Overlay – "SEKTOR 7" Fade beim Matchstart
+(function setupIntro(){
+  const intro=document.createElement('div'); intro.id='introOverlay';
+  intro.innerHTML='<div class="intro-inner"><h1>SEKTOR<i>7</i></h1><div class="intro-sub">Blau vs Rot</div></div>';
+  document.body.appendChild(intro);
+  window.__showIntro=()=>{
+    intro.classList.remove('on','off');
+    void intro.offsetWidth;
+    intro.classList.add('on');
+    setTimeout(()=>{ intro.classList.remove('on'); intro.classList.add('off'); }, 1400);
+  };
+})();
+
+// Optionen-Popup Öffnen/Schließen
+(function setupOptionsPopup(){
+  const open=document.getElementById('btnOptions');
+  const close=document.getElementById('closeOptions');
+  const pop=document.getElementById('optionsPopup');
+  if(!open||!close||!pop) return;
+  open.addEventListener('click',()=>{ pop.hidden=false; });
+  close.addEventListener('click',()=>{ pop.hidden=true; });
+  pop.addEventListener('click',(e)=>{ if(e.target===pop) pop.hidden=true; });
+})();
+
+// Waffen-Pickup: blaue GTA-Blase mit rotierender Waffe drin
+const weaponPickups=[];
+const pickupBubbleMat=new THREE.MeshBasicMaterial({color:0x5cb1ff,transparent:true,opacity:.28,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+const pickupRingMat=new THREE.MeshBasicMaterial({color:0x9bd0ff,transparent:true,opacity:.55,blending:THREE.AdditiveBlending,depthWrite:false});
+const pickupGunMat=new THREE.MeshStandardMaterial({color:0xdedee6,roughness:.35,metalness:.7,emissive:0x1a3550,emissiveIntensity:.7});
+function spawnWeaponPickup(x,z,weaponKey){
+  const g=new THREE.Group(); g.position.set(x,1.4,z);
+  const bubble=new THREE.Mesh(new THREE.SphereGeometry(.80,22,16),pickupBubbleMat); g.add(bubble);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.70,.04,10,36),pickupRingMat); ring.rotation.x=Math.PI/2; g.add(ring);
+  const shape=GUNSHAPE[weaponKey]||GUNSHAPE.ak;
+  const gun=new THREE.Group();
+  const barrel=new THREE.Mesh(new THREE.BoxGeometry(.15*shape.thick,.18*shape.thick,.85*shape.len),pickupGunMat); barrel.position.z=.15; gun.add(barrel);
+  const grip=new THREE.Mesh(new THREE.BoxGeometry(.11,.24,.13),pickupGunMat); grip.position.set(0,-.20,-.10); gun.add(grip);
+  const mag=new THREE.Mesh(new THREE.BoxGeometry(.10,.28,.16),pickupGunMat); mag.position.set(0,-.14,.02); gun.add(mag);
+  g.add(gun);
+  scene.add(g);
+  weaponPickups.push({x,z,weapon:weaponKey,group:g,gunMesh:gun,bubble,ring,born:performance.now()});
+}
+function tryPickupWeapon(){
+  if(!player.alive) return;
+  let best=null,bd=2.6;
+  for(const p of weaponPickups){ const d=Math.hypot(p.x-player.x,p.z-player.z); if(d<bd){ bd=d; best=p; } }
+  if(!best) return;
+  const key=best.weapon; if(key===player.weapon){ UI.toast('Selbe Waffe'); return; }
+  player.weapon=key; player.mag=weapons[key].mag; player.reloading=0;
+  setGunModel(player.mesh,key); UI.weapon(); UI.toast(`${weapons[key].name} aufgenommen`);
+  Audio.click();
+  scene.remove(best.group); const i=weaponPickups.indexOf(best); if(i>=0) weaponPickups.splice(i,1);
+}
+(function pickupTick(){
+  let last=performance.now();
+  function tick(now){
+    const dt=Math.min(.05,(now-last)/1000); last=now;
+    for(const p of weaponPickups){
+      p.gunMesh.rotation.y += dt*1.7;
+      p.group.position.y = 1.4 + Math.sin((now-p.born)*.0025)*.14;
+      const s=1 + Math.sin(now*.004)*.06;
+      p.bubble.scale.setScalar(s);
+      p.ring.rotation.z += dt*.6;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 })();
 
 function moveEntity(e,dx,dz){
@@ -617,7 +686,7 @@ function damage(target,amount,attacker){
   target.hp-=amount; target.lastHit=state.time;
   if(target===player){ hurtFlash(attacker); Audio.hurt(); state.shake=Math.max(state.shake,.35); }
   if(attacker===player){ UI.hitmark(target.hp<=0); Audio.hit(target.hp<=0); }
-  if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
+  if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); if(typeof spawnWeaponPickup==='function' && target!==player) spawnWeaponPickup(target.x,target.z,target.weapon||'ak'); burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
     if(target===player){ player.deaths++; player.streak=0; UI.streak(); UI.death(attacker); }
     if(attacker===player){ player.kills++; player.streak++; player.bestStreak=Math.max(player.bestStreak,player.streak); UI.streak(); if(player.streak===3) UI.toast('Helikopter bereit'); if(player.streak===7) UI.toast('Nuke bereit'); }
     const scoringTeam= target.team==='red'?'blue':'red';
@@ -671,7 +740,7 @@ function findTarget(bot){
 }
 function updateBots(dt){
   for(const bot of bots){
-    if(!bot.alive){ bot.respawn-=dt; if(bot.respawn<=0){ bot.alive=true; bot.hp=100; bot.invincible=2; const s=teamSpawn(bot.team,bot.spawnIndex); bot.x=s.x; bot.z=s.z; bot.path=[]; bot.mesh.visible=true; bot.mesh.position.set(bot.x,0,bot.z); } continue; }
+    if(!bot.alive){ bot.respawn-=dt; if(bot.respawn<=0){ bot.alive=true; bot.hp=300; bot.invincible=2; const s=teamSpawn(bot.team,bot.spawnIndex); bot.x=s.x; bot.z=s.z; bot.path=[]; bot.mesh.visible=true; bot.mesh.position.set(bot.x,0,bot.z); } continue; }
     if(bot.invincible>0) bot.invincible-=dt;
     bot.shootTimer-=dt; bot.targetTimer-=dt; bot.pathTimer-=dt; bot.strafeTimer-=dt;
     if(bot.targetTimer<=0){ bot.target=findTarget(bot); bot.targetTimer=.3+Math.random()*.2; }
@@ -848,7 +917,7 @@ const UI={
   death(by){ this.center.hidden=false; this.centerTitle.textContent='Du bist gefallen'; this.centerSub.innerHTML=(by?`Von ${by.name} · `:'')+`Respawn in <b id="respawnN">4</b>`; this.hideCross(true); },
   respawn(){ this.center.hidden=true; this.hideCross(false); },
   weapon(){ const w=weapons[player.weapon]; this.weaponLabel.textContent=w.name; document.querySelectorAll('.wpn').forEach(b=>b.classList.toggle('active',b.dataset.w===player.weapon)); },
-  status(){ const hp=Math.ceil(player.hp); this.hpNum.textContent=hp; this.hpFill.style.transform=`scaleX(${player.hp/100})`; this.hpBar.classList.toggle('low',player.hp<35); this.ammoMag.textContent=player.mag; this.reloadTag.classList.toggle('on',player.reloading>0); }
+  status(){ const hp=Math.ceil(player.hp); const hpMax=player.hpMax||300; this.hpNum.textContent=hp; this.hpFill.style.transform=`scaleX(${Math.max(0,player.hp)/hpMax})`; const cl=this.hpBar.classList; cl.remove('mid','low','crit'); if(hp<=30) cl.add('crit'); if(hp<=100) cl.add('low'); else if(hp<=200) cl.add('mid'); this.ammoMag.textContent=player.mag; this.reloadTag.classList.toggle('on',player.reloading>0); }
 };
 
 /* ======================================================================
@@ -862,7 +931,7 @@ addEventListener('keydown',e=>{ if(e.repeat) return; input.keys[e.code]=true; if
   if(e.code==='Space'){ input.jump=true; e.preventDefault(); }
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.sprintTap=true;
   if(e.code==='ControlLeft'||e.code==='ControlRight'||e.code==='KeyC'){ input.crouchTap=true; e.preventDefault(); }
-  if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); });
+  if(e.code==='KeyR') reload(); if(e.code==='KeyH') callHeli(); if(e.code==='KeyN') launchNuke(); if(e.code==='KeyE') tryPickupWeapon(); });
 addEventListener('keyup',e=>{ input.keys[e.code]=false; if(e.code==='Tab') closeWeaponWheel(); });
 // Mausrad: Waffe wechseln
 addEventListener('wheel',e=>{ if(state.phase!=='play') return; const wl=['ak','shotgun','sniper']; let i=wl.indexOf(player.weapon); i= e.deltaY>0? (i+1)%3 : (i+2)%3; selectWeapon(wl[i]); },{passive:true});
@@ -985,7 +1054,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
+    if(P.respawn<=0){ P.alive=true; P.hp=300; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
       const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
@@ -1423,8 +1492,8 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
-  bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
+  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=300; player.alive=true; player.invincible=2; player.weapon='ak'; setGunModel(player.mesh,'ak'); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=30; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  bots.forEach(b=>{ b.alive=true; b.hp=300; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
   if(heli.active){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); }
@@ -1445,6 +1514,8 @@ function endMatch(win,reason){
   setTimeout(()=>{ $('endScreen').hidden=false; UI.hud.hidden=true; $('touch').hidden=true; },900);
 }
 function startMatch(){
+  if(window.__showIntro) window.__showIntro();
+  player.weapon='pistol'; player.mag=weapons.pistol.mag; player.reloading=0; if(player.mesh) setGunModel(player.mesh,'pistol');
   Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.sens=+$('optSens').value;
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });
