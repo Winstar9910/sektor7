@@ -6,7 +6,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
    AUDIO – alles synthetisch über die Web Audio API, keine externen Dateien
    ====================================================================== */
 const Audio = {
-  ctx:null, master:null, noise:null, enabled:true, heli:null,
+  ctx:null, master:null, dry:null, wet:null, conv:null, noise:null, enabled:true, heli:null,
   init(){
     if(this.ctx) return;
     const C = window.AudioContext || window.webkitAudioContext;
@@ -15,12 +15,32 @@ const Audio = {
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 6; comp.attack.value = .003; comp.release.value = .12;
     this.master.connect(comp); comp.connect(this.ctx.destination);
-    const len = this.ctx.sampleRate*2, buf = this.ctx.createBuffer(1,len,this.ctx.sampleRate), d = buf.getChannelData(0);
+    // Dry/Wet-Bus: alles laeuft parallel durch einen Convolver mit prozeduraler Impulsantwort.
+    // Das gibt jedem Schuss einen kurzen Raumhall und wirkt sofort viel "raeumlicher".
+    this.dry = this.ctx.createGain(); this.dry.gain.value = 1.0; this.dry.connect(this.master);
+    this.wet = this.ctx.createGain(); this.wet.gain.value = .28; this.wet.connect(this.master);
+    this.conv = this.ctx.createConvolver();
+    // Impulsantwort: weisses Rauschen mit exponentiellem Decay, stereo, ca. 1.4 s.
+    const sr = this.ctx.sampleRate, irLen = Math.floor(sr * 1.4);
+    const ir = this.ctx.createBuffer(2, irLen, sr);
+    for(let ch=0; ch<2; ch++){
+      const data = ir.getChannelData(ch);
+      for(let i=0; i<irLen; i++){
+        const t = i / irLen;
+        // Kurze Anfangsstille, dann schneller Attack, dann Exp-Decay mit dichten Reflexionen
+        const env = Math.pow(1 - t, 3.2);
+        data[i] = (Math.random()*2 - 1) * env * (i < sr*0.005 ? i/(sr*0.005) : 1);
+      }
+    }
+    this.conv.buffer = ir; this.conv.connect(this.wet);
+    // Rauschbuffer fuer Bursts
+    const len = sr*2, buf = this.ctx.createBuffer(1,len,sr), d = buf.getChannelData(0);
     for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
     this.noise = buf;
   },
   resume(){ if(this.ctx && this.ctx.state==='suspended') this.ctx.resume(); },
-  // Räumliche Einordnung: Lautstärke über Distanz, Pan über Kamerarichtung
+  // Räumliche Einordnung: Lautstärke über Distanz, Pan über Kamerarichtung.
+  // Rueckgabe ist ein Gain-Knoten, der bereits mit dry- UND wet-Bus verbunden ist.
   out(pos, base=1){
     if(!this.ctx || !this.enabled) return null;
     const g = this.ctx.createGain(); let vol = base, pan = 0;
@@ -31,8 +51,13 @@ const Audio = {
       pan = Math.max(-1,Math.min(1,(dx*rx+dz*rz)/18));
     }
     g.gain.value = vol;
-    if(this.ctx.createStereoPanner){ const p=this.ctx.createStereoPanner(); p.pan.value=pan; g.connect(p); p.connect(this.master); }
-    else g.connect(this.master);
+    // Panner in beide Busse
+    if(this.ctx.createStereoPanner){
+      const p=this.ctx.createStereoPanner(); p.pan.value=pan; g.connect(p);
+      p.connect(this.dry); p.connect(this.conv);
+    } else {
+      g.connect(this.dry); g.connect(this.conv);
+    }
     return g;
   },
   burst(dest,{dur=.1,type='bandpass',freq=1000,q=1,gain=1,f2=null,delay=0}){
@@ -49,29 +74,59 @@ const Audio = {
     o.connect(g); g.connect(dest); o.start(t); o.stop(t+dur+.02);
   },
   shot(kind,pos){
-    const vol = kind==='sniper'?1.15 : kind==='shotgun'?1.05 : kind==='rocket'?1.25 : kind==='flamethrower'?.7 : kind==='gatling'?.85 : kind==='pistol'?.65 : .8;
+    const vol = kind==='sniper'?1.3 : kind==='shotgun'?1.15 : kind==='rocket'?1.4 : kind==='flamethrower'?.75 : kind==='gatling'?.9 : kind==='pistol'?.7 : .9;
     const d=this.out(pos, vol); if(!d) return;
+    // Jeder Schuss = mehrere gleichzeitige Schichten: heller Crack (Transient), mittlerer Body,
+    // tiefer Sub-Kick, und ein leiser Tail. Kombiniert wirkt es wie eine echte Waffe im Raum.
     if(kind==='ak'){
-      this.burst(d,{dur:.09,freq:1400,q:.7,gain:.9,f2:300}); this.tone(d,{dur:.08,f:150,f2:45,gain:.6}); this.burst(d,{dur:.02,type:'highpass',freq:4000,gain:.5});
+      // Trockener, harter AK-47 Ratter-Schuss
+      this.burst(d,{dur:.008,type:'highpass',freq:6500,gain:1.4});               // Sharp click
+      this.burst(d,{dur:.05, type:'bandpass',freq:1600,q:.6,gain:1.1,f2:420});   // Body
+      this.tone (d,{dur:.09, f:120,f2:38,type:'sawtooth',gain:.85});             // Kick
+      this.tone (d,{dur:.04, f:65, f2:32,type:'sine',gain:.55});                 // Sub
+      this.burst(d,{dur:.18, type:'lowpass',freq:1400,q:.4,gain:.35,f2:180,delay:.02});  // Tail
     } else if(kind==='shotgun'){
-      this.burst(d,{dur:.28,type:'lowpass',freq:1600,q:.5,gain:1.1,f2:200}); this.tone(d,{dur:.22,f:110,f2:32,gain:.8}); this.burst(d,{dur:.04,type:'highpass',freq:3000,gain:.6});
+      // Fettes, breites BOOM mit metallischem Klick
+      this.burst(d,{dur:.012,type:'highpass',freq:5500,gain:1.1});
+      this.burst(d,{dur:.35, type:'lowpass',freq:1500,q:.35,gain:1.35,f2:130});
+      this.tone (d,{dur:.28, f:95, f2:28,type:'sawtooth',gain:1.0});
+      this.tone (d,{dur:.10, f:52, f2:24,type:'sine',gain:.7});
+      this.burst(d,{dur:.55, type:'lowpass',freq:800,q:.35,gain:.4,f2:90,delay:.04});
     } else if(kind==='pistol'){
-      // Kurzer, heller Knall
-      this.burst(d,{dur:.05,type:'bandpass',freq:2200,q:.9,gain:.9,f2:900}); this.tone(d,{dur:.06,f:260,f2:80,gain:.55}); this.burst(d,{dur:.015,type:'highpass',freq:4500,gain:.5});
+      // Kompakter, heller Peitschenknall
+      this.burst(d,{dur:.006,type:'highpass',freq:7000,gain:1.3});
+      this.burst(d,{dur:.04, type:'bandpass',freq:2400,q:.7,gain:1.05,f2:950});
+      this.tone (d,{dur:.06, f:220,f2:70, type:'sawtooth',gain:.7});
+      this.tone (d,{dur:.03, f:110,f2:55, type:'sine',gain:.4});
+      this.burst(d,{dur:.14, type:'lowpass',freq:1300,q:.4,gain:.25,f2:250,delay:.02});
     } else if(kind==='sniper'){
-      // Sattes, langes KRAWUMM mit Nachhall
-      this.burst(d,{dur:.05,type:'highpass',freq:2500,gain:1}); this.burst(d,{dur:.6,type:'lowpass',freq:900,q:.4,gain:.7,f2:120,delay:.02}); this.tone(d,{dur:.3,f:200,f2:38,gain:.7});
+      // Massives, langgezogenes KRAWUMM mit langem Hall
+      this.burst(d,{dur:.015,type:'highpass',freq:5500,gain:1.5});
+      this.burst(d,{dur:.65, type:'lowpass',freq:900,q:.4,gain:1.25,f2:110,delay:.015});
+      this.tone (d,{dur:.35, f:180,f2:32,type:'sawtooth',gain:1.0});
+      this.tone (d,{dur:.20, f:70, f2:28,type:'sine',gain:.75});
+      this.burst(d,{dur:.9,  type:'lowpass',freq:600,q:.35,gain:.5,f2:70,delay:.08});    // Nachhall
     } else if(kind==='flamethrower'){
-      // Kontinuierliches Rauschen, tief, ohne scharfen Peak – wirkt wie ein Fauchen
-      this.burst(d,{dur:.14,type:'lowpass',freq:700,q:.4,gain:.55,f2:220}); this.burst(d,{dur:.05,type:'bandpass',freq:1400,q:1.4,gain:.35}); this.tone(d,{dur:.09,f:70,f2:40,gain:.3});
+      // Kontinuierliches, druckhaftes Fauchen mit Zischlaut oben
+      this.burst(d,{dur:.16, type:'lowpass',freq:750,q:.4,gain:.75,f2:200});
+      this.burst(d,{dur:.08, type:'bandpass',freq:1500,q:1.2,gain:.5});
+      this.burst(d,{dur:.05, type:'highpass',freq:3200,gain:.35});
+      this.tone (d,{dur:.10, f:75, f2:42, type:'sawtooth',gain:.35});
     } else if(kind==='gatling'){
-      // Schnelles, scharfes Knattern – hoehere Frequenz als AK, kuerzer
-      this.burst(d,{dur:.05,freq:1800,q:.7,gain:.85,f2:400}); this.tone(d,{dur:.05,f:180,f2:55,gain:.45}); this.burst(d,{dur:.015,type:'highpass',freq:5200,gain:.55});
+      // Scharfes, schnelles Knattern mit metallischem Sirren
+      this.burst(d,{dur:.007,type:'highpass',freq:7500,gain:1.35});
+      this.burst(d,{dur:.045,type:'bandpass',freq:2100,q:.6,gain:1.05,f2:550});
+      this.tone (d,{dur:.05, f:180,f2:70, type:'sawtooth',gain:.7});
+      this.tone (d,{dur:.03, f:90, f2:45, type:'sine',gain:.5});
+      this.burst(d,{dur:.11, type:'lowpass',freq:1200,q:.4,gain:.28,f2:200,delay:.02});
     } else if(kind==='rocket'){
-      // Dumpfes Whoosh + tiefer Boom
-      this.burst(d,{dur:.4,type:'lowpass',freq:1100,q:.5,gain:1.05,f2:180}); this.tone(d,{dur:.32,f:150,f2:38,gain:.75}); this.burst(d,{dur:.05,type:'highpass',freq:2600,gain:.5});
+      // Dumpfer WHOOSH mit sub-Bass-Kick und langem Boom
+      this.burst(d,{dur:.5,  type:'lowpass',freq:1200,q:.4,gain:1.15,f2:150});
+      this.tone (d,{dur:.4,  f:140,f2:32, type:'sawtooth',gain:.95});
+      this.tone (d,{dur:.6,  f:60, f2:22, type:'sine',gain:.85});                          // Sub-Bass
+      this.burst(d,{dur:.06, type:'highpass',freq:3000,gain:.5});
+      this.burst(d,{dur:.9,  type:'lowpass',freq:500,q:.3,gain:.45,f2:60,delay:.1});
     } else {
-      // Fallback wie bisher
       this.burst(d,{dur:.05,type:'highpass',freq:2500,gain:1}); this.burst(d,{dur:.6,type:'lowpass',freq:900,q:.4,gain:.7,f2:120,delay:.02}); this.tone(d,{dur:.3,f:200,f2:38,gain:.7});
     }
   },
@@ -80,7 +135,16 @@ const Audio = {
   click(){ const d=this.out(null,.5); if(!d) return; this.burst(d,{dur:.015,type:'highpass',freq:2500,gain:.7}); this.tone(d,{dur:.04,f:320,gain:.25}); },
   reload(){ const d=this.out(null,.9); if(!d) return; this.burst(d,{dur:.045,type:'bandpass',freq:1800,q:2,gain:.85}); this.burst(d,{dur:.06,type:'bandpass',freq:900,q:2,gain:1.0,delay:.55}); this.burst(d,{dur:.04,type:'highpass',freq:3000,gain:.7,delay:1.0}); },
   step(){ const d=this.out(null,.18); if(!d) return; this.burst(d,{dur:.05,type:'lowpass',freq:500,gain:.8}); },
-  explosion(pos,big=false){ const d=this.out(pos, big?1.4:1.1); if(!d) return; this.burst(d,{dur:big?2.6:1.1,type:'lowpass',freq:big?900:600,q:.3,gain:1.2,f2:40}); this.tone(d,{dur:big?1.8:.7,f:70,f2:22,gain:1}); this.burst(d,{dur:.08,type:'highpass',freq:2000,gain:.6}); },
+  explosion(pos,big=false){
+    const d=this.out(pos, big?1.6:1.2); if(!d) return;
+    // Ganz kurzer initialer Blitz-Crack, dann Body, tiefer Sub, Debris-Rauschen und langer Hall
+    this.burst(d,{dur:.01,type:'highpass',freq:5500,gain:1.4});
+    this.burst(d,{dur:big?2.8:1.2,type:'lowpass',freq:big?900:700,q:.3,gain:1.35,f2:35});
+    this.tone (d,{dur:big?2.0:.85,f:75,f2:22,type:'sawtooth',gain:1.15});
+    this.tone (d,{dur:big?1.5:.7,f:45,f2:18,type:'sine',gain:1.0});                       // Sub-Boom
+    this.burst(d,{dur:big?1.8:.9,type:'bandpass',freq:400,q:.6,gain:.5,f2:120,delay:.05}); // Debris
+    this.burst(d,{dur:big?2.4:1.1,type:'lowpass',freq:500,q:.3,gain:.55,f2:50,delay:.12}); // Hall
+  },
   siren(){ const d=this.out(null,.35); if(!d) return; for(let i=0;i<3;i++){ this.tone(d,{dur:1.2,f:380,f2:760,type:'sawtooth',gain:.12,delay:i*1.25}); } },
   heliStart(){
     if(!this.ctx||!this.enabled||this.heli) return;
@@ -1905,53 +1969,72 @@ function tankProbe(tank,angle,dist){
   return !tankBlocked(px,pz,tank);
 }
 function spawnTank(team){
-  // Zwei Panzer teilen sich das Feld diagonal in zwei nicht ueberlappende Dreiecke:
-  // Blau patrouilliert im NW-Dreieck (x<0, z<0), Rot im SE-Dreieck (x>0, z>0).
-  // So begegnen sich die Panzer nicht, und der Rest der Karte gehoert den Bots.
+  // Ein Panzer pro Team pendelt auf einer diagonalen Strecke innerhalb der eigenen Haelfte
+  // hin und her und schiesst dabei zur Mitte. Blau ist die Sued-Haelfte (z<0), Rot die Nord-Haelfte (z>0).
   const wps = team==='blue'
-    ? [ {x:-45,z:-45}, {x:-15,z:-45}, {x:-45,z: 15} ]
-    : [ {x: 45,z: 45}, {x: 15,z: 45}, {x: 45,z:-15} ];
+    ? [ {x:-40, z:-32}, {x: 40, z:-18} ]
+    : [ {x:-40, z: 18}, {x: 40, z: 32} ];
   const spawnX = wps[0].x, spawnZ = wps[0].z;
   const mesh=buildTankMesh(team); mesh.position.set(spawnX,0,spawnZ); scene.add(mesh);
   const yaw = Math.atan2(-spawnX, -spawnZ); mesh.rotation.y = yaw;
-  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, respawnT:0, mesh, speed:5.4, turretYaw:0, shootTimer:6, cooldown:12, target:null, targetTimer:0, radius:2.8,
+  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:5.2, turretYaw:0, shootTimer:5, cooldown:14, target:null, targetTimer:0, radius:2.8,
     stuckT:0, prevX:spawnX, prevZ:spawnZ, avoidYaw:0, avoidT:0, waypointIdx:0, waypoints:wps };
   tanks.push(tank);
   tank.obstacle={ x:spawnX, z:spawnZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
-  // Sichtbare Panzerstrasse als flache dunkle Streifen zwischen den Waypoints
   buildTankRoad(tank);
   return tank;
 }
+// Pflasterstrasse zwischen den zwei Wegpunkten: dunkelgrau, deckend, leicht ueber dem Boden.
+// Kein Alpha, kein depthWrite:false — sonst flackert es gegen den Battle-Map-Boden.
+let TANK_ROAD_TEX = null;
+function tankRoadTexture(){
+  if(TANK_ROAD_TEX) return TANK_ROAD_TEX;
+  const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
+  g.fillStyle='#2c2c30'; g.fillRect(0,0,128,128);
+  // Pflaster: leichte Rechtecke mit unregelmaessigen Fugen
+  for(let y=0;y<128;y+=16){
+    const off = (y/16)%2 ? 8 : 0;
+    for(let x=-8;x<128;x+=16){
+      const w = 14+Math.random()*2, h = 14+Math.random()*2;
+      g.fillStyle = `hsl(220,${4+Math.random()*6}%,${17+Math.random()*10}%)`;
+      g.fillRect(x+off+1, y+1, w, h);
+    }
+  }
+  // Feine dunklere Fugen
+  g.strokeStyle='rgba(0,0,0,.55)'; g.lineWidth=1.2;
+  for(let y=0;y<=128;y+=16){ g.beginPath(); g.moveTo(0,y); g.lineTo(128,y); g.stroke(); }
+  for(let x=0;x<=128;x+=16){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,128); g.stroke(); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.colorSpace=THREE.SRGBColorSpace;
+  TANK_ROAD_TEX = t; return t;
+}
 function buildTankRoad(tank){
   const wps = tank.waypoints;
-  const roadMat = new THREE.MeshBasicMaterial({ color: tank.team==='blue'? 0x1f3a6c : 0x6c1f1f, transparent:true, opacity:.45, depthWrite:false });
+  const roadMat = new THREE.MeshStandardMaterial({ map: tankRoadTexture(), roughness:.95, metalness:0 });
   const roadGroup = new THREE.Group();
-  for(let i=0;i<wps.length;i++){
-    const a = wps[i], b = wps[(i+1) % wps.length];
+  for(let i=0;i<wps.length-1;i++){
+    const a = wps[i], b = wps[i+1];
     const dx = b.x-a.x, dz = b.z-a.z, len = Math.hypot(dx,dz);
-    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(len, 6), roadMat);
+    const w = 6.5;
+    const geo = new THREE.PlaneGeometry(len, w);
+    // Textur skaliert nach Strassenlaenge, damit Pflastersteine nicht gestreckt aussehen
+    const matInst = roadMat.clone();
+    matInst.map = tankRoadTexture().clone();
+    matInst.map.needsUpdate = true;
+    matInst.map.wrapS = matInst.map.wrapT = THREE.RepeatWrapping;
+    matInst.map.repeat.set(len/4, w/4);
+    const stripe = new THREE.Mesh(geo, matInst);
     stripe.rotation.x = -Math.PI/2;
     stripe.rotation.z = -Math.atan2(dz, dx);
-    stripe.position.set((a.x+b.x)/2, .015, (a.z+b.z)/2);
+    stripe.position.set((a.x+b.x)/2, .04, (a.z+b.z)/2);
+    stripe.receiveShadow = true;
     roadGroup.add(stripe);
   }
   scene.add(roadGroup);
   tank.roadGroup = roadGroup;
 }
-function respawnTank(tank){
-  const spawn = tank.waypoints[0];
-  tank.x = spawn.x; tank.z = spawn.z; tank.hp = tank.maxHp; tank.alive = true; tank.mesh.visible = true;
-  tank.mesh.position.set(tank.x, 0, tank.z);
-  tank.waypointIdx = 0; tank.shootTimer = 4;
-  tank.obstacle = { x:tank.x, z:tank.z, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
-  UI.toast(tank.team==='blue'? 'Blauer Panzer respawnt' : 'Roter Panzer respawnt');
-}
 function updateTanks(dt){
   for(const tank of tanks){
-    if(!tank.alive){
-      if(tank.respawnT > 0){ tank.respawnT -= dt; if(tank.respawnT <= 0) respawnTank(tank); }
-      continue;
-    }
+    if(!tank.alive) continue;
     tank.shootTimer-=dt; tank.targetTimer-=dt;
     // --- Zielsuche ---
     if(tank.targetTimer<=0){
@@ -2061,10 +2144,8 @@ function damageTank(tank,amount){
   if(!tank.alive) return;
   tank.hp-=amount; burstParticles(new THREE.Vector3(tank.x,2,tank.z),6,'spark',8,1.2,.4);
   if(tank.hp<=0){ tank.hp=0; tank.alive=false; tank.mesh.visible=false; explode(tank.x,tank.z,10,60,true);
-    UI.toast(tank.team==='blue'? 'Blauer Panzer zerstoert! Respawn in 5:00' : 'Roter Panzer zerstoert! Respawn in 5:00');
-    const idx=obstacles.indexOf(tank.obstacle); if(idx>=0) obstacles.splice(idx,1);
-    tank.respawnT = 300; // 5 Minuten
-  }
+    UI.toast(tank.team==='blue'? 'Blauer Panzer zerstoert!' : 'Roter Panzer zerstoert!');
+    const idx=obstacles.indexOf(tank.obstacle); if(idx>=0) obstacles.splice(idx,1); }
 }
 function hitTank(b,tank){
   if(!tank.alive||b.team===tank.team) return false;
@@ -2085,10 +2166,12 @@ function resetMatch(){
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
   if(heli.active){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); }
   if(nuke.group){ scene.remove(nuke.group); nuke.group=null; } nuke.active=false; UI.flash.style.opacity=0;
-  // Alte Panzer entfernen (inklusive alter Strassen). Panzer sind aktuell deaktiviert –
-  // sie werden gerade neu konzipiert, warte auf Skizze.
+  // Alte Panzer entfernen (inklusive Strassen) und neue spawnen: 1 blau, 1 rot, pendeln.
   for(const t of tanks){ scene.remove(t.mesh); if(t.roadGroup) scene.remove(t.roadGroup); const oi=obstacles.indexOf(t.obstacle); if(oi>=0) obstacles.splice(oi,1); }
-  tanks.length=0;
+  tanks.length=0; if(state.mode!=='flag'){
+    spawnTank('blue');
+    spawnTank('red');
+  }
   initFlags();
   UI.feedEl.innerHTML=''; UI.center.hidden=true; UI.hideCross(false); UI.score(); UI.streak(); UI.weapon(); UI.status(); UI.toast('');
 }
