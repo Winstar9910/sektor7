@@ -141,6 +141,26 @@
     </div>
   </div>
 </div>
+<div class="screen" id="teamSelect" hidden>
+  <div class="sheet sheet-slim">
+    <h1 class="brand">Team<span class="brand-dot"></span>Wahl</h1>
+    <p class="ts-sub">Auf welcher Seite k&auml;mpfst du?</p>
+    <div class="team-picker">
+      <button class="team-btn team-blue" id="btnTeamBlue" type="button" aria-label="Blaues Team w&auml;hlen">
+        <span class="team-badge"></span>
+        <span class="team-name">Blau</span>
+        <span class="team-hint">Start im Norden</span>
+      </button>
+      <button class="team-btn team-red" id="btnTeamRed" type="button" aria-label="Rotes Team w&auml;hlen">
+        <span class="team-badge"></span>
+        <span class="team-name">Rot</span>
+        <span class="team-hint">Start im S&uuml;den</span>
+      </button>
+    </div>
+    <button class="secondary" id="btnTeamBack" type="button">Zur&uuml;ck</button>
+    <div id="tsLoading" hidden>SWAT-Modell wird geladen &hellip;</div>
+  </div>
+</div>
 <div class="screen" id="endScreen" hidden>
   <div class="sheet">
     <div class="end-result" id="endTitle">Sieg</div>
@@ -153,7 +173,12 @@
     <button class="primary" id="btnAgain">Nochmal</button>
   </div>
 </div>
-<script type="importmap">{"imports":{"three":"https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js"}}</script>
+<script type="importmap">{
+  "imports":{
+    "three":"https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js",
+    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}</script>
 <script type="module" src="game.js"></script>
 </body>
 </html>

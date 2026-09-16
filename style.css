@@ -52,6 +52,24 @@ canvas#gl{position:fixed;inset:0;display:block}
 .primary:active{transform:translate(3px,4px);box-shadow:2px 2px 0 var(--ink)}
 .secondary{margin-top:10px;width:100%;padding:12px;background:transparent;color:var(--ink);font-weight:700;font-size:17px;border:2px solid var(--ink)}
 .secondary:hover{background:rgba(23,22,15,.08)}
+/* ---------- Team-Auswahl ---------- */
+.ts-sub{margin-top:6px;color:var(--olive-deep);font-size:16px}
+.team-picker{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.team-btn{position:relative;padding:22px 14px 18px;border:3px solid var(--ink);color:var(--paper);font-family:var(--display);text-transform:uppercase;letter-spacing:.03em;box-shadow:5px 6px 0 var(--ink);transition:transform .12s cubic-bezier(.16,1,.3,1),box-shadow .12s,filter .12s;display:flex;flex-direction:column;align-items:center;gap:8px}
+.team-btn:hover{transform:translate(-2px,-2px);box-shadow:7px 8px 0 var(--ink);filter:brightness(1.08)}
+.team-btn:active{transform:translate(3px,4px);box-shadow:2px 2px 0 var(--ink)}
+.team-blue{background:linear-gradient(160deg,#4f8fe0 0%,#2a5fae 60%,#1e3f7c 100%)}
+.team-red{background:linear-gradient(160deg,#e0452e 0%,#a72a1a 60%,#701d10 100%)}
+.team-btn .team-badge{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.85);border:3px solid var(--ink);box-shadow:inset -6px -8px 0 rgba(23,22,15,.25)}
+.team-blue .team-badge{background:radial-gradient(circle at 32% 30%,#eaf2ff 0,#8ebbf3 55%,#3d6db8 100%)}
+.team-red .team-badge{background:radial-gradient(circle at 32% 30%,#ffe4de 0,#f2917d 55%,#b33a2a 100%)}
+.team-btn .team-name{font-size:28px;line-height:1}
+.team-btn .team-hint{font-family:var(--body);font-size:13px;letter-spacing:.04em;text-transform:none;color:rgba(255,255,255,.85);font-weight:600}
+#tsLoading{margin-top:16px;font-size:15px;color:var(--olive-deep);text-align:center;letter-spacing:.02em}
+@media (max-width:420px){
+  .team-picker{grid-template-columns:1fr}
+  .team-btn{padding:16px 12px 14px}
+}
 .stamp{position:absolute;right:22px;top:18px;padding:5px 10px;border:2.5px solid var(--signal);color:var(--signal);font-family:var(--display);font-size:14px;letter-spacing:.06em;text-transform:uppercase;transform:rotate(-8deg);opacity:.85;mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='40'><filter id='n'><feTurbulence baseFrequency='.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.9'/></filter><rect width='120' height='40' filter='url(%23n)' fill='black'/></svg>");-webkit-mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='40'><filter id='n'><feTurbulence baseFrequency='.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.9'/></filter><rect width='120' height='40' filter='url(%23n)' fill='black'/></svg>");mask-size:cover;-webkit-mask-size:cover}
 .end-result{font-family:var(--display);font-size:clamp(40px,9vw,72px);line-height:1;text-transform:uppercase}
 .end-result.win{color:var(--olive-deep)}

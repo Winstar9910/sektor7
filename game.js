@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 /* ======================================================================
    AUDIO – alles synthetisch über die Web Audio API, keine externen Dateien
@@ -291,7 +293,7 @@ const G={ gun:new THREE.BoxGeometry(.16,.2,1.25), mag:new THREE.BoxGeometry(.12,
 
 const BEIN_HALB=.75;   // halbe Beinlänge, Hüfte 1.5 -> Sohle 0
 
-function makeCharacter(team,isPlayer=false){
+function makeCharacterPrimitive(team,isPlayer=false){
   const g=new THREE.Group();
 
   // --- Beine: menschliche Proportionen, deutlich kräftiger ---
@@ -411,6 +413,137 @@ function makeCharacter(team,isPlayer=false){
   return g;
 }
 
+/* ----------------------------------------------------------------------
+   SWAT-Modell: das gerigte glTF wird einmal geladen und dann für alle
+   Figuren geklont. Farbe und Aufbau folgen dem gleichen Interface wie
+   die Primitiven-Variante, damit animateCharacter unveraendert bleibt.
+   ---------------------------------------------------------------------- */
+let SWAT_TEMPLATE=null;
+let SWAT_LOAD_PROMISE=null;
+const SWAT_STATIC_TARGETS=new Set(); // Charaktere, die nach dem Laden auf GLB umgestellt werden
+function preloadSwatModel(){
+  if(SWAT_LOAD_PROMISE) return SWAT_LOAD_PROMISE;
+  SWAT_LOAD_PROMISE=new Promise((resolve)=>{
+    try{
+      const loader=new GLTFLoader();
+      loader.load('swat-operator.glb',(gltf)=>{
+        SWAT_TEMPLATE=gltf.scene;
+        SWAT_TEMPLATE.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh){ o.castShadow=true; o.receiveShadow=false; if(o.frustumCulled!==undefined) o.frustumCulled=false; } });
+        resolve(SWAT_TEMPLATE);
+      },undefined,(err)=>{ console.warn('SWAT-Modell konnte nicht geladen werden, benutze Primitiven-Fallback:',err); resolve(null); });
+    }catch(e){ console.warn('SWAT-Loader-Fehler:',e); resolve(null); }
+  });
+  return SWAT_LOAD_PROMISE;
+}
+preloadSwatModel();
+
+const TEAM_ACCENT={ blue:new THREE.Color(0x2f6bc2), red:new THREE.Color(0xb43325) };
+
+function makeCharacterGLB(team,isPlayer=false){
+  const g=new THREE.Group();
+  const model=skeletonClone(SWAT_TEMPLATE);
+  // Groesse an die Primitiven-Figuren angleichen (Primitive ca. 3.6 hoch, GLB ca. 1.75)
+  model.scale.setScalar(2.06);
+  // GLB blickt nach -Z, die Spielfiguren stehen defaultmaessig nach +Z, faceYaw=PI dreht sie
+  // Das Group g wird per rotation.y bewegt, das GLB folgt automatisch.
+  g.add(model);
+
+  // Materialien pro Instanz klonen, damit die Team-Farbe nur diese Figur betrifft.
+  // Das "accent"-Material ist der farbige Trim (Schulter, Helm-Rim, Elbow-Pads, Chest-Tab, Kniepolster).
+  model.traverse(o=>{
+    if(!o.material) return;
+    const list=Array.isArray(o.material)?o.material:[o.material];
+    const cloned=list.map(m=>{
+      if(!m) return m;
+      if(m.name==='accent'){
+        const cm=m.clone(); cm.color.copy(TEAM_ACCENT[team]);
+        // Etwas Emission fuer bessere Sichtbarkeit im Feld
+        if(cm.emissive){ cm.emissive.copy(TEAM_ACCENT[team]).multiplyScalar(.05); }
+        return cm;
+      }
+      return m;
+    });
+    o.material=Array.isArray(o.material)?cloned:cloned[0];
+  });
+
+  // Bones aus dem Klon holen (nur echte Bone-Objekte, nicht die gleichnamigen SkinnedMeshes)
+  const bones={};
+  model.traverse(o=>{ if(o.isBone) bones[o.name]=o; });
+
+  // Bind-Rotationen sichern (Ausgangsstellung der Bones), damit die Walk-Animation
+  // relativ dazu arbeitet und die Bindepose nicht wegwirft.
+  const savePose=(name)=>{ const b=bones[name]; return b? {x:b.rotation.x,y:b.rotation.y,z:b.rotation.z} : {x:0,y:0,z:0}; };
+  const bindHipL=savePose('thigh_l'), bindHipR=savePose('thigh_r');
+  const bindArmL=savePose('upperarm_l'), bindArmR=savePose('upperarm_r');
+  const bindUpper=savePose('chest'), bindNeck=savePose('neck');
+
+  // Waffen-Gruppe an die rechte Hand haengen. Skalierung der Hand ist ca. 1/2.06 der Gruppe.
+  const gunGrp=new THREE.Group();
+  gunGrp.position.set(0.05,0,0.02);
+  gunGrp.rotation.set(0,0,0);
+  gunGrp.scale.setScalar(0.485); // gleicht die 2.06er Gesamtskalierung aus, damit Waffe wie im Primitivsystem gross ist
+  if(bones.hand_r){ bones.hand_r.add(gunGrp); }
+  else { g.add(gunGrp); gunGrp.position.set(0.55,2.30,0.25); }
+
+  const gun=new THREE.Mesh(G.gun,gunMat); gun.position.set(0,0,.35); gun.castShadow=true; gunGrp.add(gun);
+  const mag=new THREE.Mesh(G.mag,gunMat); mag.position.set(0,-.22,.08); gunGrp.add(mag);
+  const griff=new THREE.Mesh(G.griff,gunMat); griff.position.set(0,-.16,-.12); gunGrp.add(griff);
+  const schaft=new THREE.Mesh(G.schaft,gunMat); schaft.position.set(0,-.01,-.42); gunGrp.add(schaft);
+  const scope=new THREE.Mesh(G.scope,gunMat); scope.position.set(0,.2,.35); scope.visible=false; gunGrp.add(scope);
+  const muzzle=new THREE.Object3D(); muzzle.position.set(0,.02,1.02); gunGrp.add(muzzle);
+
+  // Kein Bone -> Fallback-Dummy, damit animateCharacter nichts auf undefined setzt
+  const dummy=()=>new THREE.Object3D();
+  g.userData={
+    isGLB:true,
+    hipL:bones.thigh_l||dummy(), hipR:bones.thigh_r||dummy(),
+    legL:bones.calf_l||dummy(),  legR:bones.calf_r||dummy(),
+    armL:bones.upperarm_l||dummy(), armR:bones.upperarm_r||dummy(),
+    upper:bones.chest||dummy(), neck:bones.neck||dummy(),
+    bindHipL, bindHipR, bindArmL, bindArmR, bindUpper, bindNeck,
+    gunGrp, gun, mag, scope, muzzle,
+    walk:0, amp:0, lastSin:0, stepped:false, bob:0, lean:0, armRBase:0, armLBase:0, hipLBase:0, hipRBase:0, air:0, hocke:0,
+    recoil:0, recoilRate:8, recoilKick:1, weaponKey:'ak'
+  };
+  setGunModel(g,'ak');
+  return g;
+}
+
+function makeCharacter(team,isPlayer=false){
+  if(SWAT_TEMPLATE){ return makeCharacterGLB(team,isPlayer); }
+  const g=makeCharacterPrimitive(team,isPlayer);
+  g.userData.pendingSwatSwap={team,isPlayer};
+  SWAT_STATIC_TARGETS.add(g);
+  return g;
+}
+
+// Wenn das SWAT-Modell nach dem Start des Menues fertig laedt, tauschen wir stille Figuren durch.
+preloadSwatModel().then((tpl)=>{
+  if(!tpl) return;
+  // Spielerfigur austauschen
+  try{ if(typeof player!=='undefined' && player && player.mesh && SWAT_STATIC_TARGETS.has(player.mesh)){
+    const oldM=player.mesh;
+    const nm=makeCharacterGLB(player.team, true);
+    nm.position.copy(oldM.position); nm.rotation.copy(oldM.rotation); nm.visible=oldM.visible;
+    scene.remove(oldM); scene.add(nm);
+    player.mesh=nm;
+    setGunModel(player.mesh, player.weapon);
+    SWAT_STATIC_TARGETS.delete(oldM);
+  } }catch(e){}
+  // Bot-Figuren austauschen
+  try{ if(typeof bots!=='undefined'){
+    for(const b of bots){
+      if(!b.mesh || !SWAT_STATIC_TARGETS.has(b.mesh)) continue;
+      const oldM=b.mesh;
+      const nm=makeCharacterGLB(b.team, false);
+      nm.position.copy(oldM.position); nm.rotation.copy(oldM.rotation); nm.visible=oldM.visible;
+      scene.remove(oldM); scene.add(nm);
+      b.mesh=nm;
+      SWAT_STATIC_TARGETS.delete(oldM);
+    }
+  } }catch(e){}
+});
+
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const MAX_TWIST=.45;  // darüber dreht sich der ganze Körper mit, nicht nur der Oberkörper
 // Waffenformen – die Mündungsmarke sitzt immer am sichtbaren Lauf,
@@ -450,13 +583,20 @@ function animateCharacter(g,dt,o){
   // von der Seite ein liegendes V mit dem Knick hinten und Kopf und Füßen vorn.
   u.hocke+=((o.crouch||0)-u.hocke)*Math.min(1,dt*12);
   const c=u.hocke, neige=HOCKE_NEIGE*c;
-  u.upper.position.y=1.45-.62*c; u.upper.position.z=-.40*c;
-  u.hipL.position.y=u.hipR.position.y=1.5-.62*c;
-  u.hipL.position.z=u.hipR.position.z=-.42*c;
-  const beinSkal=1-.22*c;
-  u.legL.scale.y=u.legR.scale.y=beinSkal; u.legL.position.y=u.legR.position.y=-BEIN_HALB*beinSkal;
-  u.hipL.rotation.x=u.hipLBase*(1-.6*c)-.55*air-1.15*reach-1.15*c;
-  u.hipR.rotation.x=u.hipRBase*(1-.6*c)-.2*air-.7*reach-1.15*c;
+  if(!u.isGLB){
+    // Primitive: verschiebbare Gruppen fuer echtes Ducken
+    u.upper.position.y=1.45-.62*c; u.upper.position.z=-.40*c;
+    u.hipL.position.y=u.hipR.position.y=1.5-.62*c;
+    u.hipL.position.z=u.hipR.position.z=-.42*c;
+    const beinSkal=1-.22*c;
+    u.legL.scale.y=u.legR.scale.y=beinSkal; u.legL.position.y=u.legR.position.y=-BEIN_HALB*beinSkal;
+    u.hipL.rotation.x=u.hipLBase*(1-.6*c)-.55*air-1.15*reach-1.15*c;
+    u.hipR.rotation.x=u.hipRBase*(1-.6*c)-.2*air-.7*reach-1.15*c;
+  } else {
+    // GLB: Bones drehen relativ zur Bindepose (Positionen/Skalen unveraendert lassen, sonst bricht das Skinning)
+    u.hipL.rotation.x=u.bindHipL.x + u.hipLBase*(1-.6*c) - .55*air - 1.15*reach - 0.55*c;
+    u.hipR.rotation.x=u.bindHipR.x + u.hipRBase*(1-.6*c) - .20*air - .70*reach - 0.55*c;
+  }
 
   // Rückstoß: Tempo kommt von der Waffe, damit jeder Schuss ein eigener Impuls bleibt
   u.recoil=Math.max(0,u.recoil-dt*(u.recoilRate||8));
@@ -468,34 +608,58 @@ function animateCharacter(g,dt,o){
 
   // Oberkörper dreht zur Zielrichtung; beim Schießen sitzt er sofort exakt auf der Schussrichtung
   const tw=o.twist||0;
-  if(o.snap) u.upper.rotation.y=tw; else u.upper.rotation.y+=(tw-u.upper.rotation.y)*Math.min(1,dt*24);
+  const upBaseY=u.isGLB?u.bindUpper.y:0;
+  if(o.snap) u.upper.rotation.y=upBaseY+tw; else u.upper.rotation.y+=((upBaseY+tw)-u.upper.rotation.y)*Math.min(1,dt*24);
   // Laufbewegung wird weich nachgezogen, der Rückstoß kommt hart obendrauf –
   // sonst würde die Glättung genau den Schlag wegbügeln, den man sehen soll.
   // Zielneigung: ein Viertel macht der Oberkörper, den Rest der Arm – zusammen genau der Blickwinkel
   const ap=o.pitch||0;
   const lean=Math.cos(u.walk*2)*.018*u.amp - rl*.05;
   u.lean+=(lean-u.lean)*Math.min(1,dt*20);
-  u.upper.rotation.x=u.lean-r*.045-ap*.25+.12*air+.4*reach+neige;
-  u.upper.rotation.z=-s*.05*u.amp;
-  u.neck.rotation.y=-u.upper.rotation.y*.3;
-  u.neck.rotation.x=-ap*.2-neige*.45;
+  const upBaseX=u.isGLB?u.bindUpper.x:0, upBaseZ=u.isGLB?u.bindUpper.z:0;
+  u.upper.rotation.x=upBaseX + u.lean - r*.045 - ap*.25 + .12*air + .4*reach + (u.isGLB?neige*.55:neige);
+  u.upper.rotation.z=upBaseZ - s*.05*u.amp;
+  const nkBaseX=u.isGLB?u.bindNeck.x:0, nkBaseY=u.isGLB?u.bindNeck.y:0;
+  u.neck.rotation.y=nkBaseY - (u.upper.rotation.y-upBaseY)*.3;
+  u.neck.rotation.x=nkBaseX - ap*.2 - neige*.45;
 
   // Arme schwingen gegenläufig zu den Beinen, aber gedämpft – die Waffe bleibt im Anschlag
   const armSwing=-s*.2*u.amp;
   u.armRBase+=((armSwing + rl*.35 + dip*.5)-u.armRBase)*Math.min(1,dt*24);
   u.armLBase+=((armSwing*.5 + rl*.8 + dip*.3)-u.armLBase)*Math.min(1,dt*24);
-  u.armR.rotation.x=u.armRBase-r*.24-ap*.75-.45*air-1.5*reach-neige;
-  u.armL.rotation.x=u.armLBase-r*.14-ap*.6-.65*air-1.9*reach-neige;
-  u.armL.rotation.z=rl*.45;
+  if(u.isGLB){
+    // GLB: relativ zur Bindepose, damit der Arm nicht in die Grundstellung 0 kippt.
+    // Ein zusaetzlicher Offset zieht die Arme in Anschlaghaltung nach vorn.
+    const armR_hold=-1.15, armL_hold=-1.05;
+    u.armR.rotation.x=u.bindArmR.x + armR_hold + u.armRBase - r*.24 - ap*.75 - .45*air - 1.5*reach - neige*.35;
+    u.armR.rotation.y=u.bindArmR.y;
+    u.armR.rotation.z=u.bindArmR.z;
+    u.armL.rotation.x=u.bindArmL.x + armL_hold + u.armLBase - r*.14 - ap*.6 - .65*air - 1.9*reach - neige*.35;
+    u.armL.rotation.y=u.bindArmL.y;
+    u.armL.rotation.z=u.bindArmL.z + rl*.45;
+  } else {
+    u.armR.rotation.x=u.armRBase-r*.24-ap*.75-.45*air-1.5*reach-neige;
+    u.armL.rotation.x=u.armLBase-r*.14-ap*.6-.65*air-1.9*reach-neige;
+    u.armL.rotation.z=rl*.45;
+  }
 
   // Waffe folgt dem Arm und bekommt oben drauf Rückstoß, Nachladen, Waffenwechsel
-  u.gunGrp.position.z=.42-r*.1;
-  u.gunGrp.position.y=-.35-dip*.45-rl*.14;
-  u.gunGrp.rotation.x=r*.16-rl*.35;
+  if(u.isGLB){
+    // Am Hand-Bone haengend: kleine Offsets in Bone-Local (Rueckstoss + Recoil-Roll)
+    u.gunGrp.position.z=0.02 - r*.10;
+    u.gunGrp.position.y=0.00 - dip*.30 - rl*.10;
+    u.gunGrp.rotation.x=r*.16 - rl*.35;
+  } else {
+    u.gunGrp.position.z=.42-r*.1;
+    u.gunGrp.position.y=-.35-dip*.45-rl*.14;
+    u.gunGrp.rotation.x=r*.16-rl*.35;
+  }
 
   // Körper federt im selben Takt wie die Beine
   u.bob+=((Math.abs(Math.cos(u.walk))*.075*u.amp*(1-air)*(1-.6*c))-u.bob)*Math.min(1,dt*16);
-  g.position.y=(o.baseY||0)+u.bob;
+  // GLB kann Positionen der Hueft-Bones nicht senken, also duckt sich hier stattdessen die ganze Figur ein Stueck.
+  const crouchDrop=u.isGLB? 0.85*c : 0;
+  g.position.y=(o.baseY||0)+u.bob - crouchDrop;
 }
 
 /* ======================================================================
@@ -512,6 +676,15 @@ const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, sco
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 setGunModel(player.mesh, player.weapon);
+// Spieler-Mesh mit korrekter Team-Farbe neu aufbauen (wird von der Team-Wahl aufgerufen)
+function rebuildPlayerMesh(){
+  const oldM=player.mesh;
+  const nm=makeCharacter(player.team,true);
+  if(oldM){ nm.position.copy(oldM.position); nm.rotation.copy(oldM.rotation); nm.visible=oldM.visible; scene.remove(oldM); SWAT_STATIC_TARGETS.delete(oldM); }
+  scene.add(nm);
+  player.mesh=nm;
+  setGunModel(player.mesh, player.weapon);
+}
 const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 
 const bots=[];
@@ -525,6 +698,22 @@ function createBot(team,i){
   const s=teamSpawn(team,i);
   const b={ name:NAMES[team][i]||team+i, x:s.x,z:s.z, radius:.7, team, spawnIndex:i, hp:100, hpMax:100, alive:true, invincible:1.5, respawn:0, shootTimer:Math.random(), burst:0, target:null, targetTimer:Math.random()*.3, path:[],pathIndex:0,pathTimer:0,pathTargetX:0,pathTargetZ:0, strafeDir:1,strafeTimer:0, speed: team==='blue'?5.4:5.8, weapon:'ak', moving:false, faceYaw:0, aimYaw:0, aimPitch:0, curSpeed:0, y:0, mesh:makeCharacter(team) };
   b.mesh.position.set(b.x,0,b.z); scene.add(b.mesh); bots.push(b);
+}
+// Bots werden zuerst mit Standardaufstellung erzeugt (5 blau + 6 rot); nach der
+// Team-Wahl passt buildBotsFor() die Verteilung an, so dass Spielerseite = 6 Figuren.
+function clearBots(){
+  for(const b of bots){ if(b.mesh){ scene.remove(b.mesh); SWAT_STATIC_TARGETS.delete(b.mesh); } }
+  bots.length=0;
+}
+function buildBotsFor(playerTeam){
+  clearBots();
+  if(playerTeam==='blue'){
+    for(let i=0;i<5;i++) createBot('blue',i);
+    for(let i=0;i<6;i++) createBot('red',i);
+  } else {
+    for(let i=0;i<6;i++) createBot('blue',i);
+    for(let i=0;i<5;i++) createBot('red',i);
+  }
 }
 for(let i=0;i<5;i++) createBot('blue',i);
 for(let i=0;i<6;i++) createBot('red',i);
@@ -769,7 +958,7 @@ function damage(target,amount,attacker){
     if(attacker===player){ player.kills++; player.streak++; player.bestStreak=Math.max(player.bestStreak,player.streak); UI.streak(); if(player.streak===3) UI.toast('Helikopter bereit'); if(player.streak===7) UI.toast('Nuke bereit'); }
     const scoringTeam= target.team==='red'?'blue':'red';
     if(attacker && attacker.team!==target.team){ UI.feed(attacker,target);
-      if(state.mode!=='flag'){ state.score[scoringTeam]++; UI.score(); if(state.score[scoringTeam]>=GOAL) endMatch(scoringTeam==='blue'); } }
+      if(state.mode!=='flag'){ state.score[scoringTeam]++; UI.score(); if(state.score[scoringTeam]>=GOAL) endMatch(scoringTeam===player.team); } }
     return true;
   }
   return false;
@@ -809,7 +998,7 @@ function updateEffects(dt){
    BOT-KI
    ====================================================================== */
 function findTarget(bot){
-  let best=null,bd=1e9; const cands=[]; if(bot.team==='red'&&player.alive) cands.push(player);
+  let best=null,bd=1e9; const cands=[]; if(bot.team!==player.team&&player.alive) cands.push(player);
   for(const b of bots) if(b.alive&&b.team!==bot.team) cands.push(b);
   // Feindliche Panzer als Ziel (tank-Objekt direkt, hat .alive und .x/.z)
   for(const t of tanks) if(t.alive&&t.team!==bot.team) cands.push(t);
@@ -905,12 +1094,12 @@ function updateHeli(dt){
   const yaw=Math.atan2(tx-p.x,tz-p.z); heli.mesh.rotation.set(0,yaw,0); heli.mesh.rotation.z=Math.sin(state.time*1.3)*.08; heli.mesh.rotation.x=-.12;
   heli.mesh.userData.light.intensity= (Math.sin(state.time*6)>.7)?12:0;
   heli.shotT-=dt; heli.bombT-=dt;
-  const enemies=[...bots.filter(b=>b.alive&&b.team==='red')];
-    // Heli greift auch den roten Panzer an
-    for(const t of tanks) if(t.alive&&t.team==='red') enemies.push(t);
+  const enemies=[...bots.filter(b=>b.alive&&b.team!==player.team)];
+    // Heli greift auch den gegnerischen Panzer an
+    for(const t of tanks) if(t.alive&&t.team!==player.team) enemies.push(t);
   if(heli.timer>2.5&&enemies.length){
     if(heli.shotT<=0){ heli.shotT=.09; const t=enemies[Math.floor(Math.random()*enemies.length)]; const dir=new THREE.Vector3(t.x-p.x,1.6-p.y,t.z-p.z).normalize(); dir.x+=(Math.random()-.5)*.05; dir.z+=(Math.random()-.5)*.05; dir.normalize();
-      fire({x:p.x,z:p.z,team:'blue',weapon:'ak',name:'Heli',isHeli:true},dir,p.clone().add(new THREE.Vector3(0,-.8,1.5))); }
+      fire({x:p.x,z:p.z,team:player.team,weapon:'ak',name:'Heli',isHeli:true},dir,p.clone().add(new THREE.Vector3(0,-.8,1.5))); }
     if(heli.bombT<=0){ heli.bombT=7; const t=enemies[Math.floor(Math.random()*enemies.length)]; const b=new THREE.Mesh(new THREE.SphereGeometry(.4,10,8),new THREE.MeshStandardMaterial({color:0x2c2c2c,roughness:.6,metalness:.5})); b.position.set(p.x,p.y-1.5,p.z); b.castShadow=true; scene.add(b); bombs.push({m:b,tx:t.x,tz:t.z,vy:0}); }
   }
   if(heli.timer<=0){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); UI.streak(); }
@@ -922,7 +1111,7 @@ function explode(x,z,radius,dmg,big=false){
   const ring=new THREE.Mesh(new THREE.RingGeometry(.5,1.2,40),new THREE.MeshBasicMaterial({color:0xffe0a0,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.set(x,.05,z); scene.add(ring); smokes.push({ring,life:.45});
   const scorch=new THREE.Mesh(new THREE.CircleGeometry(radius*.55,20),new THREE.MeshBasicMaterial({color:0x1a1611,transparent:true,opacity:.7,depthWrite:false})); scorch.rotation.x=-Math.PI/2; scorch.position.set(x,.012,z); scene.add(scorch); decals.push({g:scorch,mat:scorch.material,life:60});
   const hit=(e,attacker)=>{ if(!e.alive) return; const d=Math.hypot(e.x-x,e.z-z); if(d<=radius) damage(e,dmg*(1-.5*d/radius),attacker); };
-  hit(player,{name:'Heli',team:'blue',x,z}); for(const b of bots) hit(b, big? player : {name:'Heli',team:'blue',x,z,isHeli:true});
+  hit(player,{name:'Heli',team:player.team,x,z}); for(const b of bots) hit(b, big? player : {name:'Heli',team:player.team,x,z,isHeli:true});
   // Explosionen beschaedigen auch Panzer
   for(const t of tanks){ if(!t.alive) continue; const td=Math.hypot(t.x-x,t.z-z); if(td<=radius+2) damageTank(t,dmg*(1-.4*td/(radius+2))); }
 }
@@ -952,7 +1141,7 @@ function updateNuke(dt){
     const ring=new THREE.Mesh(new THREE.RingGeometry(1,3,64),new THREE.MeshBasicMaterial({color:0xfff0c0,transparent:true,opacity:1,side:THREE.DoubleSide,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=.1; g.add(ring); g.userData={ring,core,stem,cloudMat};
     const light=new THREE.PointLight(0xffc080,400,300,1.6); light.position.set(0,20,0); g.add(light); g.userData.light=light;
     g.scale.setScalar(.05);
-    for(const b of bots) if(b.alive&&b.team==='red') damage(b,999,player);
+    for(const b of bots) if(b.alive&&b.team!==player.team) damage(b,999,player);
   }
   if(nuke.t>=4.5){
     const a=nuke.t-4.5; UI.flash.style.opacity=Math.max(0,1-a*.9);
@@ -1133,7 +1322,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn('blue',Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn(P.team,Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
       const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
@@ -1288,7 +1477,7 @@ function flaggePunkt(e,f){
   flaggeHeim(f,null);
   state.score[e.team]++; UI.score(); Audio.click();
   UI.toast(`${flagName(e.team)} punktet – ${state.score[e.team]} von ${flagPunkteZiel()}`);
-  if(state.score[e.team]>=flagPunkteZiel()) endMatch(e.team==='blue');
+  if(state.score[e.team]>=flagPunkteZiel()) endMatch(e.team===player.team);
 }
 function updateFlags(dt){
   if(state.mode!=='flag') return;
@@ -1455,7 +1644,7 @@ function updateTanks(dt){
       tank.targetTimer=.6; let best=null,bd=1e9;
       const enemies=[...bots.filter(b=>b.alive&&b.team!==tank.team)];
       // Panzer greift auch den Spieler an (wenn feindlich) und andere Panzer
-      if(tank.team==='red'&&player.alive) enemies.push(player);
+      if(tank.team!==player.team&&player.alive) enemies.push(player);
       for(const ot of tanks) if(ot.alive&&ot.team!==tank.team) enemies.push(ot);
       for(const e of enemies){ const d=Math.hypot(e.x-tank.x,e.z-tank.z); if(d<bd&&(d<20||hasLOS(tank.x,tank.z,e.x,e.z))){bd=d;best=e;} }
       tank.target=best;
@@ -1571,7 +1760,11 @@ function hitTank(b,tank){
    MATCH
    ====================================================================== */
 function resetMatch(){
-  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; const _sw=state.weaponDrop?'pistol':'ak'; player.weapon=_sw; setGunModel(player.mesh,_sw); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons[_sw].mag; player.reloading=0; player.x=0; player.z=40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false; player.faceYaw=Math.PI; player.aimYaw=Math.PI; player.moveYaw=Math.PI; cam.yaw=0; cam.pitch=.12; camPos.set(0,8,52); player.mesh.visible=true;
+  state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; const _sw=state.weaponDrop?'pistol':'ak'; player.weapon=_sw; setGunModel(player.mesh,_sw); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons[_sw].mag; player.reloading=0;
+  // Startposition und Blickrichtung folgen dem gewaehlten Team: Blau steht im Norden (z=+40) und schaut zur Mitte, Rot im Sueden (z=-40).
+  const _isBlue=(player.team==='blue');
+  player.x=0; player.z=_isBlue?40:-40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false;
+  const _face=_isBlue?Math.PI:0; player.faceYaw=_face; player.aimYaw=_face; player.moveYaw=_face; cam.yaw=_isBlue?0:Math.PI; cam.pitch=.12; camPos.set(0,8,_isBlue?52:-52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
@@ -1620,7 +1813,28 @@ function startMatch(){
   }));
   zeigen();
 })();
-$('btnStart').addEventListener('click',startMatch); $('btnAgain').addEventListener('click',startMatch);
+// Team-Wahl: btnStart -> Team-Select-Screen, dort blaue oder rote Seite waehlen, dann startet das Match
+function openTeamSelect(){
+  $('startScreen').hidden=true; $('endScreen').hidden=true;
+  const ts=$('teamSelect'); if(ts) ts.hidden=false;
+  const load=$('tsLoading');
+  if(load){ load.hidden=!!SWAT_TEMPLATE; preloadSwatModel().then(()=>{ load.hidden=true; }); }
+}
+function chooseTeamAndStart(team){
+  player.team=team;
+  rebuildPlayerMesh();
+  buildBotsFor(team);
+  const ts=$('teamSelect'); if(ts) ts.hidden=true;
+  startMatch();
+}
+$('btnStart').addEventListener('click',openTeamSelect);
+$('btnAgain').addEventListener('click',()=>{ // Nochmal spielt mit gleichem Team
+  buildBotsFor(player.team); // Bots neu aufstellen, falls jemand fehlt
+  startMatch();
+});
+$('btnTeamBlue')?.addEventListener('click',()=>chooseTeamAndStart('blue'));
+$('btnTeamRed')?.addEventListener('click',()=>chooseTeamAndStart('red'));
+$('btnTeamBack')?.addEventListener('click',()=>{ $('teamSelect').hidden=true; $('startScreen').hidden=false; });
 $('btnFull').addEventListener('click',()=>{ const el=document.documentElement; (el.requestFullscreen||el.webkitRequestFullscreen)?.call(el); screen.orientation?.lock?.('landscape').catch(()=>{}); });
 $('ctrlDesktop').hidden=isTouch; $('ctrlTouch').hidden=!isTouch; if(isTouch) $('btnFull').textContent='Vollbild (empfohlen)';
 document.addEventListener('visibilitychange',()=>{ if(document.hidden){ input.keys={}; input.fire=false; input.jump=false; } else Audio.resume(); });
