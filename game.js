@@ -1216,24 +1216,33 @@ function spawnBullet(shooter,pos,dir,w,team){
 }
 function fire(shooter,dir3,muzzle){
   const w=weapons[shooter.weapon];
-  // Startpunkt ist die tatsächliche Laufspitze im Modell, nicht ein gerechneter Ersatzpunkt.
-  // Damit der seitliche Versatz des Laufs nicht am Fadenkreuz vorbeischießt, läuft die Kugel
-  // auf denselben Zielpunkt zu, den die Ziellinie trifft.
-  const mp=muzzlePoint(shooter.mesh);
-  if(mp){
-    muzzle=mp.clone();
-    const conv=Math.min(w.range,32);
-    dir3=new THREE.Vector3(shooter.x+dir3.x*conv-mp.x, dir3.y*conv, shooter.z+dir3.z*conv-mp.z).normalize();
+  const isPlayer = shooter===player;
+  // Standard-FPS-Praxis: fuer den Spieler startet die Kugel direkt aus der Kamera und fliegt in
+  // Kamerablickrichtung. Der Waffenlauf ist reine Optik. So trifft die Kugel garantiert genau da,
+  // wo das Fadenkreuz zeigt – egal aus welcher Perspektive und egal wie weit weg das Ziel ist.
+  // Fuer Bots bleiben Muzzle und Richtung wie berechnet (die haben kein Fadenkreuz).
+  if(isPlayer){
+    muzzle = camera.position.clone().addScaledVector(dir3, .35);
+    // dir3 kommt schon aus cam.yaw/pitch – nichts umrechnen, sonst verzerrt der Konvergenz-Trick den Schuss.
+  } else {
+    const mp=muzzlePoint(shooter.mesh);
+    if(mp){
+      muzzle=mp.clone();
+      const conv=Math.min(w.range,32);
+      dir3=new THREE.Vector3(shooter.x+dir3.x*conv-mp.x, dir3.y*conv, shooter.z+dir3.z*conv-mp.z).normalize();
+    }
   }
   for(let i=0;i<w.pellets;i++){
     const d=dir3.clone(); if(w.spread){ d.x+=(Math.random()-.5)*w.spread*2; d.y+=(Math.random()-.5)*w.spread*1.2; d.z+=(Math.random()-.5)*w.spread*2; } d.normalize();
     spawnBullet(shooter,muzzle,d,w,shooter.team);
   }
-  Audio.shot(shooter.weapon, shooter===player?null:{x:shooter.x,z:shooter.z});
-  muzzleFlash(muzzle,dir3, shooter===player);
+  Audio.shot(shooter.weapon, isPlayer?null:{x:shooter.x,z:shooter.z});
+  // Muzzle-Flash weiterhin visuell an der Waffe der Figur (nicht am Kamerapunkt), sieht in Third-Person richtig aus
+  const visMuzzle = (isPlayer && shooter.mesh) ? (muzzlePoint(shooter.mesh) || muzzle) : muzzle;
+  muzzleFlash(visMuzzle, dir3, isPlayer);
   // Flammenwerfer: kraeftiger Feuer-Burst am Muendungslauf, damit das Fauchen sichtbar wird
-  if(w.beam){ burstParticles(muzzle,3,'fire',7,1.9,.35,-1); if(Math.random()<.5) burstParticles(muzzle,1,'smoke',2.5,1.4,.5,-1); }
-  // Rückstoß klingt genau bis zum nächsten Schuss ab – jede Waffe bekommt ihren eigenen Takt
+  if(w.beam){ burstParticles(visMuzzle,3,'fire',7,1.9,.35,-1); if(Math.random()<.5) burstParticles(visMuzzle,1,'smoke',2.5,1.4,.5,-1); }
+  // Rueckstoss auf die Waffen-Animation – NICHT auf die Kamera. Das Fadenkreuz bleibt so ruhig.
   if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=w.kick; u.recoilRate=Math.max(2.6,Math.min(14,1/Math.max(.07,w.cooldown*.85))); }
 }
 
@@ -1757,10 +1766,8 @@ function updatePlayer(dt){
       cam.yaw = wrapAngle(cam.yaw - ax * sens);
       cam.pitch = Math.max(-1.0, Math.min(1.0, cam.pitch + az * sens * 0.55));
       aimDir.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw)).normalize();
-      // Zielhilfe nur bei den "Spraywaffen" — Sniper und alle Zoom-Modi zielen manuell.
-      // Sonst wuerde die Kugel beim Praezisionsschuss zum naechsten Feind gezogen und
-      // der Spieler nimmt das als "das Zielvisier springt zur Mitte" wahr.
-      if(zoomState.level===0 && player.weapon!=='sniper' && player.weapon!=='rocket'){ aimAssist(aimDir); }
+      // Zielhilfe ist komplett deaktiviert: der Spieler bestimmt, wo die Kugel hingeht,
+      // nicht die Engine. Das war die Ursache fuers "wegspringen beim Schuss".
     } else {
       // Stick nur beruehrt, keine Auslenkung: geradeaus durch das Fadenkreuz schiessen
       aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw));
@@ -1792,7 +1799,8 @@ function updatePlayer(dt){
     if(P.mag<=0){ reload(); }
     else if(w.auto||!P.firedHeld){ P.mag--; P.shootTimer=w.cooldown; P.firedHeld=true;
       fire(P,aimDir,new THREE.Vector3(P.x+aimDir.x*1.3,P.y+2.25,P.z+aimDir.z*1.3));
-      state.shake=Math.max(state.shake,w.kick*.06); state.shakeRate=Math.max(4,1/Math.max(.05,w.cooldown*.5));
+      // Kein Kamera-Shake beim eigenen Schuss: Recoil ist reine Waffen-Animation.
+      // Das Fadenkreuz muss beim Schuss ruhig auf dem Ziel bleiben.
       UI.status(); if(P.mag===0) reload(); }
   }
   if(!wantFire) P.firedHeld=false;
