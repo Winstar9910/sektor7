@@ -1202,9 +1202,9 @@ function findPath(sx,sz,tx,tz){
    PROJEKTILE, EFFEKTE
    ====================================================================== */
 const bullets=[]; const bulletPool=[];
-const tracerGeo=new THREE.BoxGeometry(.07,.07,1.4);
+const tracerGeo=new THREE.BoxGeometry(.04,.04,.9);
 const tracerMats={};
-function tracerMat(c){ return tracerMats[c]||(tracerMats[c]=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false})); }
+function tracerMat(c){ return tracerMats[c]||(tracerMats[c]=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false})); }
 const _v=new THREE.Vector3(), _q=new THREE.Quaternion(), _fwd=new THREE.Vector3(0,0,1);
 
 function spawnBullet(shooter,pos,dir,w,team){
@@ -1212,7 +1212,11 @@ function spawnBullet(shooter,pos,dir,w,team){
   mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(_fwd,dir); mesh.visible=!w.beam; scene.add(mesh);
   // Explosive Geschosse (Rocket) sind dicker und ziehen eine kurze Rauchspur.
   if(w.explosive){ mesh.scale.set(3.2, 3.2, 2.4); } else { mesh.scale.set(1,1,1); }
-  bullets.push({mesh,dir:dir.clone(),speed:w.speed,damage:w.damage,team,shooter,life:w.range/w.speed,px:pos.x,py:pos.y,pz:pos.z, explosive:!!w.explosive, explodeRadius:w.explodeRadius||6, smokeT:0, beam:!!w.beam});
+  // Fuer Spielerkugeln: die ersten paar Meter unsichtbar halten, sonst sieht der Tracer aus wie
+  // ein Klotz direkt vor dem Fadenkreuz. Der Schuss wird sichtbar, sobald er ein Stueck weit weg ist.
+  const isPlayerShot = shooter===player;
+  bullets.push({mesh,dir:dir.clone(),speed:w.speed,damage:w.damage,team,shooter,life:w.range/w.speed,px:pos.x,py:pos.y,pz:pos.z, explosive:!!w.explosive, explodeRadius:w.explodeRadius||6, smokeT:0, beam:!!w.beam, hideUntilDist: isPlayerShot && !w.beam ? 4 : 0, startX:pos.x, startZ:pos.z});
+  if(isPlayerShot && !w.beam) mesh.visible = false;
 }
 function fire(shooter,dir3,muzzle){
   const w=weapons[shooter.weapon];
@@ -1242,8 +1246,9 @@ function fire(shooter,dir3,muzzle){
   muzzleFlash(visMuzzle, dir3, isPlayer);
   // Flammenwerfer: kraeftiger Feuer-Burst am Muendungslauf, damit das Fauchen sichtbar wird
   if(w.beam){ burstParticles(visMuzzle,3,'fire',7,1.9,.35,-1); if(Math.random()<.5) burstParticles(visMuzzle,1,'smoke',2.5,1.4,.5,-1); }
-  // Rueckstoss auf die Waffen-Animation – NICHT auf die Kamera. Das Fadenkreuz bleibt so ruhig.
-  if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=w.kick; u.recoilRate=Math.max(2.6,Math.min(14,1/Math.max(.07,w.cooldown*.85))); }
+  // Rueckstoss auf die Waffen-Animation – NICHT auf die Kamera. Recoil-Kick ist gedaempft,
+  // damit die Waffe beim Schuss nicht sichtbar wegzieht (das nimmt der Spieler als Zielsprung wahr).
+  if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=w.kick*.35; u.recoilRate=Math.max(4,Math.min(20,1/Math.max(.05,w.cooldown*.5))); }
 }
 
 // Mündungsfeuer (Sprite + ein geteiltes Punktlicht für den Spieler)
@@ -1297,6 +1302,11 @@ function hitEntity(b,e){ // Segment gegen Kapsel (Körperzylinder). Return: fals
 function updateBullets(dt){
   for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i]; b.px=b.mesh.position.x; b.py=b.mesh.position.y; b.pz=b.mesh.position.z;
     b.mesh.position.addScaledVector(b.dir,b.speed*dt); b.life-=dt; const p=b.mesh.position; let remove=false, spark=true;
+    // Tracer der eigenen Schuesse erst einblenden, wenn sie sich weit genug vom Ursprung entfernt haben
+    if(b.hideUntilDist>0 && !b.mesh.visible){
+      const dd=Math.hypot(p.x-b.startX, p.z-b.startZ);
+      if(dd>b.hideUntilDist) b.mesh.visible=true;
+    }
     // Rauchspur fuer Raketen, Flammenspur fuer den Flammenwerfer
     if(b.explosive){ b.smokeT-=dt; if(b.smokeT<=0){ b.smokeT=.03; burstParticles(p,1,'smoke',1.4,.8,.45,-1); burstParticles(p,1,'fire',2.2,.7,.18,-1); } }
     else if(b.beam){ burstParticles(p,2,'fire',3.5,1.6,.28,-2); if(Math.random()<.35) burstParticles(p,1,'smoke',1.2,1.1,.35,-1); }
