@@ -1456,7 +1456,7 @@ function deathSplash(x,z){ if(!state.splash) return; const g=new THREE.Group(); 
 function damage(target,amount,attacker){
   if(!target.alive||target.invincible>0) return false;
   target.hp-=amount; target.lastHit=state.time;
-  if(target===player){ hurtFlash(attacker); Audio.hurt(); state.shake=Math.max(state.shake,.35); }
+  if(target===player){ hurtFlash(attacker); Audio.hurt(); state.shake=Math.max(state.shake,.35); UI.status(); }
   if(attacker===player){ UI.hitmark(target.hp<=0); Audio.hit(target.hp<=0); }
   if(target.hp<=0){ target.hp=0; target.alive=false; target.respawn=4; target.mesh.visible=false; deathSplash(target.x,target.z); if(state.weaponDrop && typeof spawnWeaponPickup==='function' && target!==player){ const _wKeys=['pistol','ak','shotgun','sniper']; const _w=_wKeys[(Math.random()*_wKeys.length)|0]; spawnWeaponPickup(target.x,target.z,_w); } burstParticles(new THREE.Vector3(target.x,1.8,target.z),10,state.splash?'blood':'dust',7,1.2,.5);
     if(target===player){ player.deaths++; player.streak=0; UI.streak(); UI.death(attacker); }
@@ -2508,7 +2508,7 @@ function frame(now){
       }
     }
     updateBullets(dt); updateEffects(dt); updateHeli(dt); updateBombs(dt); updateNuke(dt); updateCamera(dt);
-    hudT+=dt; if(hudT>.1){ hudT=0; UI.clock(); const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
+    hudT+=dt; if(hudT>.1){ hudT=0; UI.clock(); UI.status(); const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
   } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,dt,{})); }
   if(!state.noRender) renderer.render(scene,camera);
 }
