@@ -567,9 +567,12 @@ const BATTLE_MAP_NO_COLLIDER = new Set([
   // Deko-Panzer in der Karte: keine Kollider, werden zusaetzlich versteckt (nur echte spawnTank-Panzer bleiben)
   'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel'
 ]);
-// Diese Namen werden nach dem Load unsichtbar geschaltet: Deko-Panzer aus der Battle-Map.
+// Diese Namen werden nach dem Load unsichtbar geschaltet: Deko-Panzer, statische Rauch-
+// und Feuerwolken aus der Battle-Map. Die Wolken sind unbewegte Blobs mitten in der Luft
+// und wirken dadurch stoerend statt atmosphaerisch.
 const BATTLE_MAP_HIDE = new Set([
-  'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel'
+  'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel',
+  'smoke','fire','fire_light','flame_inner','flame_outer'
 ]);
 // Diese Meshes werden IMMER kollidiert, auch wenn sie schmaler/niedriger als der Standardfilter sind.
 // Damit stoppen z.B. Stacheldraht-Pfosten und Barrikaden ab jetzt auch Kugeln.
@@ -957,7 +960,7 @@ const weapons={
   rocket:      {name:'Rocket',       cooldown:1.35,damage:105, speed:80, pellets:1,spread:.006,mag:4,  reload:3.2,auto:false,range:120,kick:2.2,tracer:0xff3020, explosive:true, explodeRadius:6.5}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6, weaponDrop:false };
-const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
+const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchLevel:0, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
 scene.add(player.mesh);
 setGunModel(player.mesh, player.weapon);
 // Spieler-Mesh mit korrekter Team-Farbe neu aufbauen (wird von der Team-Wahl aufgerufen)
@@ -1692,7 +1695,7 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.weapon='pistol'; setGunModel(P.mesh,'pistol'); P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn(P.team,Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.weapon='pistol'; setGunModel(P.mesh,'pistol'); P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn(P.team,Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.crouchLevel=0; P.mesh.visible=true;
       const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.weapon(); UI.status(); if(typeof updateZoomAvailability==='function') updateZoomAvailability(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
@@ -1705,9 +1708,9 @@ function updatePlayer(dt){
   if(input.keys.KeyW||input.keys.ArrowUp) mz-=1; if(input.keys.KeyS||input.keys.ArrowDown) mz+=1; if(input.keys.KeyA||input.keys.ArrowLeft) mx-=1; if(input.keys.KeyD||input.keys.ArrowRight) mx+=1;
   const len=Math.hypot(mx,mz); let moving=false, realSpeed=0;
   // Sprint an- und abschalten, dann entscheiden, ob gerade wirklich gesprintet wird
-  if(input.crouchTap){ input.crouchTap=false; P.crouch=!P.crouch; if(P.crouch) P.sprintOn=false; }
-  if(input.sprintTap){ input.sprintTap=false; P.sprintOn=!P.sprintOn; if(P.sprintOn) P.crouch=false; }
-  P.crouchAmt+=((P.crouch?1:0)-P.crouchAmt)*Math.min(1,dt*12);
+  if(input.crouchTap){ input.crouchTap=false; P.crouchLevel=(P.crouchLevel+1)%3; P.crouch=P.crouchLevel>0; if(P.crouch) P.sprintOn=false; }
+  if(input.sprintTap){ input.sprintTap=false; P.sprintOn=!P.sprintOn; if(P.sprintOn){ P.crouch=false; P.crouchLevel=0; } }
+  P.crouchAmt+=((P.crouchLevel*0.5)-P.crouchAmt)*Math.min(1,dt*12);
   P.height=3.6-HOCKE_DROP*P.crouchAmt;
   $('btnCrouch').classList.toggle('on',P.crouch);
   if(P.sprintLeer && P.stamina>=SPRINT_WIEDER) P.sprintLeer=false;
@@ -1729,7 +1732,7 @@ function updatePlayer(dt){
   let mantleProg=0;
   if(P.mantle){ mantleProg=updateMantle(P,dt); moving=false; realSpeed=0; }
   else {
-    if(input.jump){ input.jump=false; P.crouch=false; if(!tryMantle(P) && P.grounded){ P.vy=JUMP_V; P.grounded=false; Audio.step(); } }
+    if(input.jump){ input.jump=false; P.crouch=false; P.crouchLevel=0; if(!tryMantle(P) && P.grounded){ P.vy=JUMP_V; P.grounded=false; Audio.step(); } }
     // Im Fallen greift die Figur von selbst nach einer Kante vor ihr
     if(!P.grounded && P.vy<2.5 && moving) tryMantle(P);
     if(!P.mantle){
@@ -2184,7 +2187,7 @@ function resetMatch(){
   state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; const _sw=state.weaponDrop?'pistol':'ak'; player.weapon=_sw; setGunModel(player.mesh,_sw); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons[_sw].mag; player.reloading=0;
   // Startposition und Blickrichtung folgen dem gewaehlten Team: Blau steht im Sueden (z=-40) und schaut zur Mitte, Rot im Norden (z=+40).
   const _isBlue=(player.team==='blue');
-  player.x=0; player.z=_isBlue?-40:40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false;
+  player.x=0; player.z=_isBlue?-40:40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchLevel=0; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false;
   const _face=_isBlue?0:Math.PI; player.faceYaw=_face; player.aimYaw=_face; player.moveYaw=_face; cam.yaw=_isBlue?Math.PI:0; cam.pitch=.12; camPos.set(0,8,_isBlue?-52:52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
