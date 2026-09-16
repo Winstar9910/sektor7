@@ -892,7 +892,9 @@ const cam={ yaw:0, pitch:.12, dist:9.5, fpv:false };
 const bots=[];
 const NAMES={blue:['Falke','Anker','Kolibri','Nordwind','Basalt'], red:['Wespe','Schakal','Kobra','Sandsturm','Granit','Zyklon']};
 function teamSpawn(team,i){
-  const zs= team==='blue'? 42 : -42; const xs=[-18,-9,0,9,18,-14,14][i%7]; const zo=[0,0,0,0,0,5,5][i%7]*(team==='blue'?-1:1);
+  // Team-Zelte: Blau steht im Sueden der Battle-Map (z=-42), Rot im Norden (z=+42).
+  // Die frueheren Werte lagen umgekehrt und liessen Rot im blauen Zelt spawnen.
+  const zs= team==='blue'? -42 : 42; const xs=[-18,-9,0,9,18,-14,14][i%7]; const zo=[0,0,0,0,0,5,5][i%7]*(team==='blue'?1:-1);
   for(let r=0;r<40;r++){ const x=xs+(Math.random()-.5)*r*1.5, z=zs+zo+(Math.random()-.5)*r*1.5; if(!blocked(x,z,.9)) return {x,z}; }
   return {x:xs,z:zs};
 }
@@ -1508,32 +1510,37 @@ $('btnCrouch').addEventListener('pointerdown',e=>{ e.preventDefault(); input.cro
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
 
-/* Zoom-System fuer den Sniper (3x Vergroesserung mit rundem Scope-Overlay).
-   Der Zoom-Button wird nur bei Sniper eingeblendet. Rocket schiesst normal ohne Sonder-Overlay. */
-const ZOOM_CONFIG = { sniper:{fov:22, ui:'scope'} };
-const CAM_FOV_DEFAULT = camera.fov;
-const zoomState = { active:false };
+/* Zoom-System: jede Waffe bekommt Zoom-Stufe 1 (2x, FOV 34).
+   Der Sniper hat zusaetzlich Stufe 2 (3.4x, FOV 20). Tap wechselt hoch,
+   nach der letzten Stufe geht es wieder auf 0 (aus). */
+const CAM_FOV_DEFAULT = camera.fov;                    // 68
+const ZOOM_STAGES_DEFAULT = [null, {fov:34, scope:false}];
+const ZOOM_STAGES_SNIPER  = [null, {fov:34, scope:false}, {fov:20, scope:true}];
+function zoomStages(){ return player.weapon==='sniper' ? ZOOM_STAGES_SNIPER : ZOOM_STAGES_DEFAULT; }
+const zoomState = { level:0, wasFpv:null };
 function updateZoomAvailability(){
-  const cfg = ZOOM_CONFIG[player.weapon];
+  // Zoom-Button ist nur auf Touch-Geraeten sichtbar und wenn eine Waffe aktiv ist.
   const btn = $('btnZoom');
-  if(btn) btn.hidden = !cfg || !isTouch;
-  if(!cfg && zoomState.active) setZoom(false);
+  if(btn) btn.hidden = !isTouch;
+  if(zoomState.level>0) setZoomLevel(0);
 }
-function setZoom(on){
-  const cfg = ZOOM_CONFIG[player.weapon];
-  if(on && !cfg) return;
-  zoomState.active = !!on;
-  camera.fov = on ? cfg.fov : CAM_FOV_DEFAULT;
+function setZoomLevel(lvl){
+  const stages = zoomStages();
+  if(lvl >= stages.length) lvl = 0;
+  const cfg = stages[lvl];
+  zoomState.level = lvl;
+  camera.fov = cfg ? cfg.fov : CAM_FOV_DEFAULT;
   camera.updateProjectionMatrix();
-  $('scopeOverlay').hidden = !(on && cfg && cfg.ui==='scope');
-  // Zoom aktiviert First-Person, damit Sichtlinie und Waffe deckungsgleich sind.
-  // Beim Ausschalten kehren wir zur vorherigen Sicht zurueck.
-  if(on && !cam.fpv){ zoomState.wasFpv=false; cam.fpv=true; }
-  else if(!on && zoomState.wasFpv===false){ cam.fpv=false; cam.dist=9.5; zoomState.wasFpv=null; }
-  const b = $('btnZoom'); if(b) b.classList.toggle('on', !!on);
+  $('scopeOverlay').hidden = !(cfg && cfg.scope);
+  // Beim Aktivieren merken wir den urspruenglichen View-Modus und wechseln in FPV,
+  // damit Fadenkreuz und Waffenlauf deckungsgleich sind.
+  if(lvl > 0 && zoomState.wasFpv === null){ zoomState.wasFpv = cam.fpv; cam.fpv = true; }
+  else if(lvl === 0 && zoomState.wasFpv !== null){ cam.fpv = zoomState.wasFpv; if(!cam.fpv) cam.dist=9.5; zoomState.wasFpv = null; }
+  const b = $('btnZoom'); if(b) b.classList.toggle('on', lvl>0);
 }
-$('btnZoom').addEventListener('pointerdown',e=>{ e.preventDefault(); setZoom(!zoomState.active); });
-addEventListener('keydown',e=>{ if(e.code==='KeyZ'||e.code==='ShiftRight') { setZoom(!zoomState.active); }});
+function toggleZoom(){ setZoomLevel(zoomState.level + 1); }
+$('btnZoom').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleZoom(); });
+addEventListener('keydown',e=>{ if(e.code==='KeyZ'||e.code==='ShiftRight') toggleZoom(); });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
@@ -2069,21 +2076,19 @@ function hitTank(b,tank){
    ====================================================================== */
 function resetMatch(){
   state.score={blue:0,red:0}; state.time=0; state.clock=0; state.shake=0; player.kills=player.deaths=player.streak=player.bestStreak=0; player.hp=100; player.alive=true; player.invincible=2; const _sw=state.weaponDrop?'pistol':'ak'; player.weapon=_sw; setGunModel(player.mesh,_sw); weaponSwitch.active=false; weaponSwitch.dip=0; player.mag=weapons[_sw].mag; player.reloading=0;
-  // Startposition und Blickrichtung folgen dem gewaehlten Team: Blau steht im Norden (z=+40) und schaut zur Mitte, Rot im Sueden (z=-40).
+  // Startposition und Blickrichtung folgen dem gewaehlten Team: Blau steht im Sueden (z=-40) und schaut zur Mitte, Rot im Norden (z=+40).
   const _isBlue=(player.team==='blue');
-  player.x=0; player.z=_isBlue?40:-40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false;
-  const _face=_isBlue?Math.PI:0; player.faceYaw=_face; player.aimYaw=_face; player.moveYaw=_face; cam.yaw=_isBlue?0:Math.PI; cam.pitch=.12; camPos.set(0,8,_isBlue?52:-52); player.mesh.visible=true;
+  player.x=0; player.z=_isBlue?-40:40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false;
+  const _face=_isBlue?0:Math.PI; player.faceYaw=_face; player.aimYaw=_face; player.moveYaw=_face; cam.yaw=_isBlue?Math.PI:0; cam.pitch=.12; camPos.set(0,8,_isBlue?-52:52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
   if(heli.active){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); }
   if(nuke.group){ scene.remove(nuke.group); nuke.group=null; } nuke.active=false; UI.flash.style.opacity=0;
-  // Alte Panzer entfernen (inklusive Strassen) und neue spawnen
+  // Alte Panzer entfernen (inklusive alter Strassen). Panzer sind aktuell deaktiviert –
+  // sie werden gerade neu konzipiert, warte auf Skizze.
   for(const t of tanks){ scene.remove(t.mesh); if(t.roadGroup) scene.remove(t.roadGroup); const oi=obstacles.indexOf(t.obstacle); if(oi>=0) obstacles.splice(oi,1); }
-  tanks.length=0; if(state.mode!=='flag'){
-    spawnTank('blue');
-    spawnTank('red');
-  }
+  tanks.length=0;
   initFlags();
   UI.feedEl.innerHTML=''; UI.center.hidden=true; UI.hideCross(false); UI.score(); UI.streak(); UI.weapon(); UI.status(); UI.toast('');
 }
@@ -2100,6 +2105,7 @@ function startMatch(){
   if(window.__showIntro) window.__showIntro();
   const _drop=$('optWeaponDrop')?.checked; const _startW=_drop?'pistol':'ak';
   player.weapon=_startW; player.mag=weapons[_startW].mag; player.reloading=0; if(player.mesh) setGunModel(player.mesh,_startW);
+  if(typeof updateZoomAvailability==='function') updateZoomAvailability();
   setTimeout(()=>{ try{ UI.toast(_drop? 'Pistole zum Start. An Waffenblasen Aufnehmen bestaetigen (E).' : 'AK-47 zum Start. Kein Waffendrop aktiv.'); }catch(e){} }, 1600);
   Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.weaponDrop=$('optWeaponDrop')?.checked||false; state.sens=+$('optSens').value;
   Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
