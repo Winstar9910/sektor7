@@ -186,6 +186,9 @@ canvas#gl{position:fixed;inset:0;display:block}
 #btnSprint.on{background:var(--paper);color:var(--ink)}
 #btnSprint.leer .ring circle{stroke:var(--signal);opacity:.5}
 #btnCam{right:calc(178px + var(--safe-r));bottom:calc(104px + var(--safe-b))}
+#btnReload{right:calc(22px + var(--safe-r));bottom:calc(172px + var(--safe-b));font-size:22px;line-height:1;background:var(--ink-80);border:1.5px solid rgba(255,220,120,.55);color:#ffd88a}
+#btnReload:active{background:#ffd88a;color:var(--ink)}
+#btnReload.on{background:#ffd88a;color:var(--ink);animation:pulse .5s ease-in-out infinite alternate}
 #hint{position:fixed;left:50%;bottom:calc(88px + var(--safe-b));transform:translateX(-50%);z-index:20;pointer-events:none;font-size:13px;color:var(--paper-dim);text-shadow:0 1px 3px #000;opacity:0;transition:opacity .4s}
 #hint.show{opacity:1}
 #orient{position:fixed;inset:0;z-index:200;background:var(--ink);display:none;align-items:center;justify-content:center;text-align:center;padding:30px;font-size:20px;font-weight:600;line-height:1.4}

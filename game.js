@@ -78,7 +78,7 @@ const Audio = {
   hit(kill){ const d=this.out(null,.5); if(!d) return; if(kill){ this.tone(d,{dur:.09,f:520,type:'square',gain:.18}); this.tone(d,{dur:.16,f:780,f2:1040,type:'square',gain:.18,delay:.07}); } else this.tone(d,{dur:.045,f:1900,type:'triangle',gain:.35}); },
   hurt(){ const d=this.out(null,.7); if(!d) return; this.burst(d,{dur:.16,type:'lowpass',freq:420,gain:.8}); this.tone(d,{dur:.14,f:90,f2:40,gain:.5}); },
   click(){ const d=this.out(null,.5); if(!d) return; this.burst(d,{dur:.015,type:'highpass',freq:2500,gain:.7}); this.tone(d,{dur:.04,f:320,gain:.25}); },
-  reload(){ const d=this.out(null,.6); if(!d) return; this.burst(d,{dur:.03,type:'bandpass',freq:1800,q:2,gain:.6}); this.burst(d,{dur:.04,type:'bandpass',freq:900,q:2,gain:.7,delay:.55}); this.burst(d,{dur:.03,type:'highpass',freq:3000,gain:.5,delay:1.0}); },
+  reload(){ const d=this.out(null,.9); if(!d) return; this.burst(d,{dur:.045,type:'bandpass',freq:1800,q:2,gain:.85}); this.burst(d,{dur:.06,type:'bandpass',freq:900,q:2,gain:1.0,delay:.55}); this.burst(d,{dur:.04,type:'highpass',freq:3000,gain:.7,delay:1.0}); },
   step(){ const d=this.out(null,.18); if(!d) return; this.burst(d,{dur:.05,type:'lowpass',freq:500,gain:.8}); },
   explosion(pos,big=false){ const d=this.out(pos, big?1.4:1.1); if(!d) return; this.burst(d,{dur:big?2.6:1.1,type:'lowpass',freq:big?900:600,q:.3,gain:1.2,f2:40}); this.tone(d,{dur:big?1.8:.7,f:70,f2:22,gain:1}); this.burst(d,{dur:.08,type:'highpass',freq:2000,gain:.6}); },
   siren(){ const d=this.out(null,.35); if(!d) return; for(let i=0;i<3;i++){ this.tone(d,{dur:1.2,f:380,f2:760,type:'sawtooth',gain:.12,delay:i*1.25}); } },
@@ -177,7 +177,7 @@ const texWall = makeTex(256,(g,s)=>{ g.fillStyle='#5d5a52'; g.fillRect(0,0,s,s);
 const USE_BATTLE_MAP = true;
 const BATTLE_MAP_URL = 'battle-map.glb';
 const BATTLE_MAP_FIT_XZ = 100;                 // Zielspanne der horizontalen Ausdehnung in Weltmetern
-const BATTLE_MAP_Y_OFFSET = 1.3;               // die Map wird visuell um diesen Wert abgesenkt, damit die sichtbare Bodenoberflaeche auf y=0 liegt (Player laeuft auf y=0)
+const BATTLE_MAP_Y_OFFSET = 0;                 // Feinjustierung ueber die automatische Bodenerkennung (positiv = Map weiter nach unten)
 const USE_BUILTIN_PROPS = !USE_BATTLE_MAP;     // altes Innen-Setup nur, wenn keine Map genutzt wird
 const ARENA = 110, HALF = ARENA/2;
 const obstacles = [];
@@ -529,8 +529,8 @@ function preloadBattleMap(){
         root.scale.setScalar(scale);
 
         // 2) Nach dem Skalieren horizontal auf (0,0) zentrieren und minY zunaechst auf 0 legen.
-        //    Erst NACH der Kollider-Ableitung senken wir die Map noch um BATTLE_MAP_Y_OFFSET ab.
-        //    Die Kollider bleiben dabei bei y>=0 verankert, weil das Kollisionssystem xz-basiert ist.
+        //    Kollider werden vor der finalen Y-Absenkung abgeleitet, damit ihre Hoehen relativ
+        //    zum Referenzboden bleiben (das Kollisionssystem ist xz-basiert, y spielt fuer inFoot keine Rolle).
         root.updateMatrixWorld(true);
         const box1 = new THREE.Box3().setFromObject(root);
         const c = box1.getCenter(new THREE.Vector3());
@@ -538,6 +538,25 @@ function preloadBattleMap(){
         root.position.z -= c.z;
         root.position.y -= box1.min.y;
         root.updateMatrixWorld(true);
+
+        // 2b) Automatische Bodenhoehe ermitteln: alle grossen flachen Meshes sind Bodenkandidaten,
+        //     wir nehmen den Median ihrer Oberkanten (max.y) als "logischen Boden". So passt der Spieler
+        //     bei gemischten Bodenhoehen (Sand + Asphalt) im Schnitt ordentlich drauf.
+        const groundCandidates = [];
+        const _bb = new THREE.Box3(), _sz = new THREE.Vector3();
+        root.traverse(o=>{
+          if(!o.isMesh) return;
+          _bb.setFromObject(o); _bb.getSize(_sz);
+          // Bodenkandidat: horizontal gross (>= 5 m) UND vertikal flach (<= 1.5 m)
+          if((_sz.x >= 5 || _sz.z >= 5) && _sz.y <= 1.5){
+            groundCandidates.push(_bb.max.y);
+          }
+        });
+        let autoGroundY = 0;
+        if(groundCandidates.length > 0){
+          groundCandidates.sort((a,b)=>a-b);
+          autoGroundY = groundCandidates[Math.floor(groundCandidates.length/2)];   // Median
+        }
 
         // 3) Shadows und Frustum-Culling fuer alle Meshes vorbereiten.
         root.traverse(o=>{
@@ -594,11 +613,13 @@ function preloadBattleMap(){
           pickupCount++;
         });
 
-        // 6) Erst jetzt visuell absenken, damit die sichtbare Bodenoberflaeche mit y=0 zusammenfaellt.
-        root.position.y -= BATTLE_MAP_Y_OFFSET;
+        // 6) Erst jetzt visuell absenken: die automatisch erkannte Bodenhoehe wandert auf y=0,
+        //    plus die manuelle Feinjustierung BATTLE_MAP_Y_OFFSET (positiv = weiter nach unten).
+        const finalYShift = autoGroundY + BATTLE_MAP_Y_OFFSET;
+        root.position.y -= finalYShift;
         root.updateMatrixWorld(true);
 
-        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}, Waffen-Pickups ${pickupCount}`);
+        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}, Waffen-Pickups ${pickupCount}, Auto-Boden ${autoGroundY.toFixed(2)} (aus ${groundCandidates.length} Kandidaten), Feinjustierung ${BATTLE_MAP_Y_OFFSET.toFixed(2)}, Gesamt-Y-Verschiebung ${finalYShift.toFixed(2)}`);
         resolve(root);
       }, undefined, (err)=>{
         console.warn('[Battle Map] konnte nicht geladen werden:', err);
@@ -1387,7 +1408,7 @@ const UI={
   death(by){ this.center.hidden=false; this.centerTitle.textContent='Du bist gefallen'; this.centerSub.innerHTML=(by?`Von ${by.name} · `:'')+`Respawn in <b id="respawnN">4</b>`; this.hideCross(true); },
   respawn(){ this.center.hidden=true; this.hideCross(false); },
   weapon(){ const w=weapons[player.weapon]; this.weaponLabel.textContent=w.name; document.querySelectorAll('.wpn').forEach(b=>b.classList.toggle('active',b.dataset.w===player.weapon)); },
-  status(){ const hp=Math.ceil(player.hp); const hpMax=player.hpMax||100; this.hpNum.textContent=hp; this.hpFill.style.transform=`scaleX(${Math.max(0,player.hp)/hpMax})`; const cl=this.hpBar.classList; cl.remove('mid','low','crit'); if(hp<=25) cl.add('crit'); if(hp<=50) cl.add('low'); else if(hp<=75) cl.add('mid'); this.ammoMag.textContent=player.mag; this.reloadTag.classList.toggle('on',player.reloading>0); }
+  status(){ const hp=Math.ceil(player.hp); const hpMax=player.hpMax||100; this.hpNum.textContent=hp; this.hpFill.style.transform=`scaleX(${Math.max(0,player.hp)/hpMax})`; const cl=this.hpBar.classList; cl.remove('mid','low','crit'); if(hp<=25) cl.add('crit'); if(hp<=50) cl.add('low'); else if(hp<=75) cl.add('mid'); this.ammoMag.textContent=player.mag; this.reloadTag.classList.toggle('on',player.reloading>0); const rb=$('btnReload'); if(rb) rb.classList.toggle('on', player.reloading>0); }
 };
 
 /* ======================================================================
@@ -1456,6 +1477,7 @@ $('btnJump').addEventListener('pointerdown',e=>{ e.preventDefault(); input.jump=
 $('btnSprint').addEventListener('pointerdown',e=>{ e.preventDefault(); input.sprintTap=true; });
 $('btnCrouch').addEventListener('pointerdown',e=>{ e.preventDefault(); input.crouchTap=true; });
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
+$('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
