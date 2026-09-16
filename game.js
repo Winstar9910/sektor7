@@ -49,10 +49,31 @@ const Audio = {
     o.connect(g); g.connect(dest); o.start(t); o.stop(t+dur+.02);
   },
   shot(kind,pos){
-    const d=this.out(pos, kind==='sniper'?1.1:kind==='shotgun'?1.05:.8); if(!d) return;
-    if(kind==='ak'){ this.burst(d,{dur:.09,freq:1400,q:.7,gain:.9,f2:300}); this.tone(d,{dur:.08,f:150,f2:45,gain:.6}); this.burst(d,{dur:.02,type:'highpass',freq:4000,gain:.5}); }
-    else if(kind==='shotgun'){ this.burst(d,{dur:.28,type:'lowpass',freq:1600,q:.5,gain:1.1,f2:200}); this.tone(d,{dur:.22,f:110,f2:32,gain:.8}); this.burst(d,{dur:.04,type:'highpass',freq:3000,gain:.6}); }
-    else { this.burst(d,{dur:.05,type:'highpass',freq:2500,gain:1}); this.burst(d,{dur:.6,type:'lowpass',freq:900,q:.4,gain:.7,f2:120,delay:.02}); this.tone(d,{dur:.3,f:200,f2:38,gain:.7}); }
+    const vol = kind==='sniper'?1.15 : kind==='shotgun'?1.05 : kind==='rocket'?1.25 : kind==='flamethrower'?.7 : kind==='gatling'?.85 : kind==='pistol'?.65 : .8;
+    const d=this.out(pos, vol); if(!d) return;
+    if(kind==='ak'){
+      this.burst(d,{dur:.09,freq:1400,q:.7,gain:.9,f2:300}); this.tone(d,{dur:.08,f:150,f2:45,gain:.6}); this.burst(d,{dur:.02,type:'highpass',freq:4000,gain:.5});
+    } else if(kind==='shotgun'){
+      this.burst(d,{dur:.28,type:'lowpass',freq:1600,q:.5,gain:1.1,f2:200}); this.tone(d,{dur:.22,f:110,f2:32,gain:.8}); this.burst(d,{dur:.04,type:'highpass',freq:3000,gain:.6});
+    } else if(kind==='pistol'){
+      // Kurzer, heller Knall
+      this.burst(d,{dur:.05,type:'bandpass',freq:2200,q:.9,gain:.9,f2:900}); this.tone(d,{dur:.06,f:260,f2:80,gain:.55}); this.burst(d,{dur:.015,type:'highpass',freq:4500,gain:.5});
+    } else if(kind==='sniper'){
+      // Sattes, langes KRAWUMM mit Nachhall
+      this.burst(d,{dur:.05,type:'highpass',freq:2500,gain:1}); this.burst(d,{dur:.6,type:'lowpass',freq:900,q:.4,gain:.7,f2:120,delay:.02}); this.tone(d,{dur:.3,f:200,f2:38,gain:.7});
+    } else if(kind==='flamethrower'){
+      // Kontinuierliches Rauschen, tief, ohne scharfen Peak – wirkt wie ein Fauchen
+      this.burst(d,{dur:.14,type:'lowpass',freq:700,q:.4,gain:.55,f2:220}); this.burst(d,{dur:.05,type:'bandpass',freq:1400,q:1.4,gain:.35}); this.tone(d,{dur:.09,f:70,f2:40,gain:.3});
+    } else if(kind==='gatling'){
+      // Schnelles, scharfes Knattern – hoehere Frequenz als AK, kuerzer
+      this.burst(d,{dur:.05,freq:1800,q:.7,gain:.85,f2:400}); this.tone(d,{dur:.05,f:180,f2:55,gain:.45}); this.burst(d,{dur:.015,type:'highpass',freq:5200,gain:.55});
+    } else if(kind==='rocket'){
+      // Dumpfes Whoosh + tiefer Boom
+      this.burst(d,{dur:.4,type:'lowpass',freq:1100,q:.5,gain:1.05,f2:180}); this.tone(d,{dur:.32,f:150,f2:38,gain:.75}); this.burst(d,{dur:.05,type:'highpass',freq:2600,gain:.5});
+    } else {
+      // Fallback wie bisher
+      this.burst(d,{dur:.05,type:'highpass',freq:2500,gain:1}); this.burst(d,{dur:.6,type:'lowpass',freq:900,q:.4,gain:.7,f2:120,delay:.02}); this.tone(d,{dur:.3,f:200,f2:38,gain:.7});
+    }
   },
   hit(kill){ const d=this.out(null,.5); if(!d) return; if(kill){ this.tone(d,{dur:.09,f:520,type:'square',gain:.18}); this.tone(d,{dur:.16,f:780,f2:1040,type:'square',gain:.18,delay:.07}); } else this.tone(d,{dur:.045,f:1900,type:'triangle',gain:.35}); },
   hurt(){ const d=this.out(null,.7); if(!d) return; this.burst(d,{dur:.16,type:'lowpass',freq:420,gain:.8}); this.tone(d,{dur:.14,f:90,f2:40,gain:.5}); },
@@ -156,7 +177,7 @@ const texWall = makeTex(256,(g,s)=>{ g.fillStyle='#5d5a52'; g.fillRect(0,0,s,s);
 const USE_BATTLE_MAP = true;
 const BATTLE_MAP_URL = 'battle-map.glb';
 const BATTLE_MAP_FIT_XZ = 100;                 // Zielspanne der horizontalen Ausdehnung in Weltmetern
-const BATTLE_MAP_Y_OFFSET = 1.8;               // die Map wird visuell um diesen Wert abgesenkt, damit die sichtbare Bodenoberflaeche auf y=0 liegt (Player laeuft auf y=0)
+const BATTLE_MAP_Y_OFFSET = 1.3;               // die Map wird visuell um diesen Wert abgesenkt, damit die sichtbare Bodenoberflaeche auf y=0 liegt (Player laeuft auf y=0)
 const USE_BUILTIN_PROPS = !USE_BATTLE_MAP;     // altes Innen-Setup nur, wenn keine Map genutzt wird
 const ARENA = 110, HALF = ARENA/2;
 const obstacles = [];
@@ -234,6 +255,8 @@ function blockedAt(x,z,r,feet){
 }
 // Steht an dieser Stelle auf dieser Höhe Material? (für Geschosse)
 function solidAt(x,z,y,r=0){ for(const o of obstacles){ if(inFoot(o,x,z,r)&&y<o.h) return true; } return false; }
+// Wie solidAt, aber liefert das getroffene Obstacle zurueck (fuer explosive Faesser etc.)
+function hitObstacle(x,z,y,r=0){ for(const o of obstacles){ if(inFoot(o,x,z,r)&&y<o.h) return o; } return null; }
 // Sichtlinie (2D) – Strecke gegen Hindernis-Rechtecke
 function segHitsBox(ax,az,bx,bz,o){
   const minx=o.x-o.w/2,maxx=o.x+o.w/2,minz=o.z-o.d/2,maxz=o.z+o.d/2; let t0=0,t1=1; const dx=bx-ax,dz=bz-az;
@@ -479,8 +502,16 @@ const BATTLE_MAP_FORCE_COLLIDER = new Set([
   'container','container_body','container_door','container_rib','container_post',
   'metal_crate','crate_body','crate_band',
   'wood_pedestal','pedestal_top','pedestal_leg_0','pedestal_leg_1','pedestal_leg_2','pedestal_leg_3','pedestal_brace_1','pedestal_brace_2','pickup_post','pickup_station',
-  'tower_leg','tower_rail'
+  'tower_leg','tower_rail',
+  'barrel','barrel_body','barrel_burning'
 ]);
+// Diese Meshes sind zerstoerbar: HP, bei 0 -> Explosion, Mesh verschwindet.
+// Der Namen-Key steuert Radius und Schaden der Explosion.
+const BATTLE_MAP_EXPLOSIVE = {
+  barrel:         { hp:25, radius:4.0, damage:45 },
+  barrel_body:    { hp:25, radius:4.0, damage:45 },
+  barrel_burning: { hp:15, radius:5.0, damage:65 }
+};
 function preloadBattleMap(){
   if(!USE_BATTLE_MAP) return Promise.resolve(null);
   if(BATTLE_MAP_LOAD_PROMISE) return BATTLE_MAP_LOAD_PROMISE;
@@ -538,7 +569,17 @@ function preloadBattleMap(){
           }
           if(ct.x < -CLIP || ct.x > CLIP || ct.z < -CLIP || ct.z > CLIP) return; // ausserhalb der Arena
           const h = Math.max(bb.max.y, 0.4);
-          obstacles.push({ x: ct.x, z: ct.z, w: Math.max(sz.x, .2), h, d: Math.max(sz.z, .2) });
+          const collider = { x: ct.x, z: ct.z, w: Math.max(sz.x, .2), h, d: Math.max(sz.z, .2) };
+          const ex = BATTLE_MAP_EXPLOSIVE[name];
+          if(ex){
+            collider.explosive = true;
+            collider.hp = ex.hp;
+            collider.explodeRadius = ex.radius;
+            collider.explodeDamage = ex.damage;
+            collider.mesh = o;                     // Referenz zum Mesh, damit wir es nach dem Boom verstecken koennen
+            collider.meshRoot = o.parent || null;   // manche Faesser haben Kind-Meshes (rim, band) am gleichen Parent
+          }
+          obstacles.push(collider);
           colliderCount++;
         });
 
@@ -804,12 +845,12 @@ let GOAL=30;   // im Startmenue einstellbar, 10 bis 200
 const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
-  sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff},
-  pistol: {name:'Pistol',  cooldown:.38, damage:22, speed:90, pellets:1,spread:.014,mag:12,reload:1.4,auto:false,range:45, kick:.7,tracer:0xffcc80},
+  sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:180,pellets:1,spread:.003,mag:5, reload:2.6,auto:false,range:170,kick:1.8,tracer:0xa0e0ff},
+  pistol: {name:'Pistol',  cooldown:.34, damage:22, speed:88, pellets:1,spread:.018,mag:12,reload:1.4,auto:false,range:32, kick:.7,tracer:0xffcc80},
   // Spezialwaffen von den Podesten der Battle-Map
-  flamethrower:{name:'Flammenwerfer',cooldown:.05, damage:7,  speed:55, pellets:1,spread:.14, mag:120,reload:2.6,auto:true, range:18, kick:.25,tracer:0xff6a10},
-  gatling:     {name:'Gatling',      cooldown:.06, damage:11, speed:110,pellets:1,spread:.045,mag:100,reload:3.4,auto:true, range:75, kick:.45,tracer:0xffcc60},
-  rocket:      {name:'Rocket',       cooldown:1.35,damage:95, speed:80, pellets:1,spread:.006,mag:4,  reload:3.2,auto:false,range:110,kick:2.2,tracer:0xff3020}
+  flamethrower:{name:'Flammenwerfer',cooldown:.05, damage:7,  speed:50, pellets:1,spread:.16, mag:120,reload:2.6,auto:true, range:16, kick:.25,tracer:0xff6a10},
+  gatling:     {name:'Gatling',      cooldown:.06, damage:11, speed:110,pellets:1,spread:.055,mag:100,reload:3.4,auto:true, range:65, kick:.45,tracer:0xffcc60},
+  rocket:      {name:'Rocket',       cooldown:1.35,damage:95, speed:80, pellets:1,spread:.006,mag:4,  reload:3.2,auto:false,range:120,kick:2.2,tracer:0xff3020, explosive:true, explodeRadius:6.5}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6, weaponDrop:false };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
@@ -1041,7 +1082,9 @@ const _v=new THREE.Vector3(), _q=new THREE.Quaternion(), _fwd=new THREE.Vector3(
 function spawnBullet(shooter,pos,dir,w,team){
   const mesh=bulletPool.pop()||new THREE.Mesh(tracerGeo,tracerMat(w.tracer)); mesh.material=tracerMat(w.tracer);
   mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(_fwd,dir); mesh.visible=true; scene.add(mesh);
-  bullets.push({mesh,dir:dir.clone(),speed:w.speed,damage:w.damage,team,shooter,life:w.range/w.speed,px:pos.x,py:pos.y,pz:pos.z});
+  // Explosive Geschosse (Rocket) sind dicker und ziehen eine kurze Rauchspur.
+  if(w.explosive){ mesh.scale.set(3.2, 3.2, 2.4); } else { mesh.scale.set(1,1,1); }
+  bullets.push({mesh,dir:dir.clone(),speed:w.speed,damage:w.damage,team,shooter,life:w.range/w.speed,px:pos.x,py:pos.y,pz:pos.z, explosive:!!w.explosive, explodeRadius:w.explodeRadius||6, smokeT:0});
 }
 function fire(shooter,dir3,muzzle){
   const w=weapons[shooter.weapon];
@@ -1112,16 +1155,37 @@ function hitEntity(b,e){ // Segment gegen Kapsel (Körperzylinder)
 function updateBullets(dt){
   for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i]; b.px=b.mesh.position.x; b.py=b.mesh.position.y; b.pz=b.mesh.position.z;
     b.mesh.position.addScaledVector(b.dir,b.speed*dt); b.life-=dt; const p=b.mesh.position; let remove=false, spark=true;
+    // Rauchspur fuer Raketen
+    if(b.explosive){ b.smokeT-=dt; if(b.smokeT<=0){ b.smokeT=.03; burstParticles(p,1,'smoke',1.4,.8,.45,-1); burstParticles(p,1,'fire',2.2,.7,.18,-1); } }
     if(b.life<=0){ remove=true; spark=false; }
     else if(p.y<0){ remove=true; p.y=.02; }
-    else if(solidAt(p.x,p.z,p.y,.05)) remove=true;
+    else {
+      const hitObs = hitObstacle(p.x,p.z,p.y,.05);
+      if(hitObs){
+        remove = true;
+        // Zerstoerbares Objekt (Fass): HP reduzieren, ggf. Explosion + Mesh verstecken
+        if(hitObs.explosive && hitObs.hp > 0){
+          hitObs.hp -= b.damage;
+          if(hitObs.hp <= 0){
+            explode(hitObs.x, hitObs.z, hitObs.explodeRadius || 4, hitObs.explodeDamage || 45);
+            if(hitObs.mesh) hitObs.mesh.visible = false;
+            // Als Hindernis auch aus dem Weg raeumen: klein machen und explosive abschalten
+            hitObs.explosive = false; hitObs.hp = 0; hitObs.w = .01; hitObs.d = .01; hitObs.h = .01;
+          }
+        }
+      }
+    }
     if(!remove && b.team!==player.team && player.alive && hitEntity(b,player)){ damage(player,b.damage,b.shooter); remove=true; spark=false; burstParticles(p,4,'dust',3,.8,.25); }
     if(!remove){ for(const bot of bots){ if(!bot.alive||bot.team===b.team) continue; if(hitEntity(b,bot)){ damage(bot,b.damage,b.shooter); remove=true; spark=false; burstParticles(p,4,state.splash?'blood':'dust',3,.8,.25); break; } } }
     if(!remove){ for(const tank of tanks){ if(hitTank(b,tank)){ damageTank(tank,b.damage); remove=true; break; } } }
     if(remove){
+      // Raketen explodieren IMMER (auch bei direktem Treffer), mit halbem Splashschaden
+      if(b.explosive){ explode(p.x,p.z, b.explodeRadius, Math.max(30, b.damage*0.55)); }
       // Panzergranaten explodieren bei Einschlag
-      if(b.damage===0&&spark){ explode(p.x,p.z,6,70); }
+      else if(b.damage===0&&spark){ explode(p.x,p.z,6,70); }
       else if(spark) burstParticles(p,4,'spark',5,.7,.3);
+      // Skalierung zuruecksetzen, damit das Mesh im Pool wiederverwendbar bleibt
+      b.mesh.scale.set(1,1,1);
       scene.remove(b.mesh); bulletPool.push(b.mesh); bullets.splice(i,1);
     }
   }
@@ -1510,25 +1574,25 @@ function updatePlayer(dt){
       } else { P.y=gh; P.vy=0; P.grounded=true; }
     } else mantleProg=0;
   }
-  // Zielrichtung: Maus = Kamerarichtung, Touch = rechter Stick relativ zur Kamera
+  // Zielrichtung: Maus = Kamerarichtung, Touch = rechter Stick DREHT die Kamera relativ (wie Maus)
   let wantFire=false;
   if(input.aimHeld){
     wantFire=true;
     const ax=input.ax, az=input.az;
     if(Math.hypot(ax,az)>AIM_DEADZONE){
-      // Stick gedrückt: Richtung des Sticks. Bezugspunkt ist die Blickrichtung beim Antippen –
-      // sonst würde sich die Kamera endlos im Kreis drehen, weil sie ihrer eigenen Vorgabe folgt.
-      if(aimRef===null) aimRef=cam.yaw;
-      const fx=-Math.sin(aimRef), fz=-Math.cos(aimRef); const rx=Math.cos(aimRef), rz=-Math.sin(aimRef);
-      aimDir.set(rx*ax - fx*az,0,rz*ax - fz*az).normalize(); aimAssist(aimDir);
-      // Die Sicht dreht mit: Kamera zieht auf die Zielrichtung, in Schulter- wie in Egoperspektive
-      const wantCam=wrapAngle(Math.atan2(aimDir.x,aimDir.z)+Math.PI);
-      cam.yaw+=wrapAngle(wantCam-cam.yaw)*Math.min(1,dt*8);
+      // Relatives Drehen: die Stick-Auslenkung erhoeht/verringert cam.yaw und cam.pitch pro Frame.
+      // Damit gibt es keinen Sprung mehr beim Antippen; die Kamera dreht dort weiter, wo sie steht.
+      // Die Empfindlichkeit skaliert mit state.sens (Slider 3..15).
+      const sens = state.sens * dt * 0.32;
+      cam.yaw = wrapAngle(cam.yaw - ax * sens);
+      cam.pitch = Math.max(-1.0, Math.min(1.0, cam.pitch + az * sens * 0.55));
+      aimDir.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw)).normalize();
+      aimAssist(aimDir);
     } else {
-      // Stick nur gehalten: exakt geradeaus durch das Fadenkreuz, ohne Zielhilfe
-      aimRef=null;
+      // Stick nur beruehrt, keine Auslenkung: geradeaus durch das Fadenkreuz schiessen
       aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw));
     }
+    aimRef=null;
   }
   else { aimRef=null; if(input.fire){ aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)); wantFire=true; } }
 
