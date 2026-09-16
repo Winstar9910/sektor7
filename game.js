@@ -245,8 +245,13 @@ const BATTLE_MAP_Y_OFFSET = 0;                 // Feinjustierung ueber die autom
 const USE_BUILTIN_PROPS = !USE_BATTLE_MAP;     // altes Innen-Setup nur, wenn keine Map genutzt wird
 const ARENA = 110, HALF = ARENA/2;
 const obstacles = [];
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(ARENA+40,ARENA+40), new THREE.MeshStandardMaterial({map:texGround, roughness:.95, metalness:0}));
-ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+// Alte Arena-Bodenplane nur wenn KEINE Battle-Map genutzt wird.
+// Sonst z-fightet sie mit dem GLB-Boden und produziert Flackern.
+let ground = null;
+if(!USE_BATTLE_MAP){
+  ground = new THREE.Mesh(new THREE.PlaneGeometry(ARENA+40,ARENA+40), new THREE.MeshStandardMaterial({map:texGround, roughness:.95, metalness:0}));
+  ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+}
 
 function box(x,z,w,h,d,mat,rotY=0,y=null){
   const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(x,y===null?h/2:y,z); m.rotation.y=rotY; m.castShadow=true; m.receiveShadow=true; scene.add(m); return m;
@@ -555,7 +560,16 @@ const BATTLE_MAP_NO_COLLIDER = new Set([
   'weapon_flamethrower','weapon_gatling','weapon_rocket_launcher','weapon_sniper',
   'ft_pilot_flame','sn_bipod_1','sn_bipod_2',
   'flame_outer','flame_inner','fire','fire_light','smoke',
-  'wire_coil','wire_barb'   // Tausende Draht-Details, wuerden die Kollisionsschleife lahmlegen
+  'wire_coil','wire_barb',   // Tausende Draht-Details, wuerden die Kollisionsschleife lahmlegen
+  // Zelte: keine Kollider, damit man reingehen kann
+  'camp_tent','tent_door','tent_gable_1','tent_gable_2','tent_ridge',
+  'tent_roof_left','tent_roof_right','tent_rope_0','tent_rope_1','tent_rope_2','tent_rope_3',
+  // Deko-Panzer in der Karte: keine Kollider, werden zusaetzlich versteckt (nur echte spawnTank-Panzer bleiben)
+  'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel'
+]);
+// Diese Namen werden nach dem Load unsichtbar geschaltet: Deko-Panzer aus der Battle-Map.
+const BATTLE_MAP_HIDE = new Set([
+  'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel'
 ]);
 // Diese Meshes werden IMMER kollidiert, auch wenn sie schmaler/niedriger als der Standardfilter sind.
 // Damit stoppen z.B. Stacheldraht-Pfosten und Barrikaden ab jetzt auch Kugeln.
@@ -620,11 +634,15 @@ function preloadBattleMap(){
         const autoGroundY = bestGroundY !== null ? bestGroundY : 0;
 
         // 3) Shadows und Frustum-Culling fuer alle Meshes vorbereiten.
+        //    Deko-Panzer aus der Map werden gleich unsichtbar geschaltet (die echten
+        //    Panzer werden spaeter ueber spawnTank hinzugefuegt).
+        let hiddenCount = 0;
         root.traverse(o=>{
           if(o.isMesh){
             o.castShadow = true;
             o.receiveShadow = true;
             if(o.frustumCulled!==undefined) o.frustumCulled = false;
+            if(BATTLE_MAP_HIDE.has(o.name)){ o.visible = false; hiddenCount++; }
           }
         });
         scene.add(root);
@@ -1903,7 +1921,11 @@ function updateCamera(dt){
     camPos.copy(camTarget);
     camera.position.copy(camPos);
     const shake=state.shake; state.shake=Math.max(0,shake-dt*(state.shakeRate||6));
-    if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12; camera.position.y+=(Math.random()-.5)*shake*.1; }
+    // Beim Zoomen (Sniper-Scope) wird der Kamera-Shake massiv reduziert, damit
+    // das Fadenkreuz nicht beim Schuss nach oben-links springt. Sonst wirkt jeder Schuss
+    // wie ein Sprung, weil das Bild 3x vergroessert ist und der Shake mitvergroessert wird.
+    const shakeScale = (typeof zoomState!=='undefined' && zoomState.level>0) ? .1 : 1;
+    if(shake>0){ camera.position.x+=(Math.random()-.5)*shake*.12*shakeScale; camera.position.y+=(Math.random()-.5)*shake*.1*shakeScale; }
     const cp=Math.cos(cam.pitch), sp=Math.sin(cam.pitch);
     camLookTarget.set(P.x+fx*10*cp, P.y+3.0-HOCKE_DROP*P.crouchAmt-10*sp, P.z+fz*10*cp);
     camLook.copy(camLookTarget);
