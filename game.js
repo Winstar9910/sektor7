@@ -539,24 +539,21 @@ function preloadBattleMap(){
         root.position.y -= box1.min.y;
         root.updateMatrixWorld(true);
 
-        // 2b) Automatische Bodenhoehe ermitteln: alle grossen flachen Meshes sind Bodenkandidaten,
-        //     wir nehmen den Median ihrer Oberkanten (max.y) als "logischen Boden". So passt der Spieler
-        //     bei gemischten Bodenhoehen (Sand + Asphalt) im Schnitt ordentlich drauf.
-        const groundCandidates = [];
+        // 2b) Automatische Bodenhoehe: das GROESSTE flache Mesh gilt als Hauptboden.
+        //     Median hat frueher zu erhoehte Bereiche mitgemittelt und die Map zu weit runter geschoben,
+        //     was Panzer, Sandsaecke und Stacheldraht versinken liess. Groesstes-Mesh-Regel ist robuster.
+        let bestGroundY = null, bestGroundArea = 0, groundCandidates = 0;
         const _bb = new THREE.Box3(), _sz = new THREE.Vector3();
         root.traverse(o=>{
           if(!o.isMesh) return;
           _bb.setFromObject(o); _bb.getSize(_sz);
-          // Bodenkandidat: horizontal gross (>= 5 m) UND vertikal flach (<= 1.5 m)
-          if((_sz.x >= 5 || _sz.z >= 5) && _sz.y <= 1.5){
-            groundCandidates.push(_bb.max.y);
-          }
+          if(_sz.y > 1.5) return;                  // flach
+          if(_sz.x < 8 && _sz.z < 8) return;       // muss gross genug fuer eine Bodenflaeche sein
+          groundCandidates++;
+          const area = _sz.x * _sz.z;
+          if(area > bestGroundArea){ bestGroundArea = area; bestGroundY = _bb.max.y; }
         });
-        let autoGroundY = 0;
-        if(groundCandidates.length > 0){
-          groundCandidates.sort((a,b)=>a-b);
-          autoGroundY = groundCandidates[Math.floor(groundCandidates.length/2)];   // Median
-        }
+        const autoGroundY = bestGroundY !== null ? bestGroundY : 0;
 
         // 3) Shadows und Frustum-Culling fuer alle Meshes vorbereiten.
         root.traverse(o=>{
@@ -619,7 +616,7 @@ function preloadBattleMap(){
         root.position.y -= finalYShift;
         root.updateMatrixWorld(true);
 
-        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}, Waffen-Pickups ${pickupCount}, Auto-Boden ${autoGroundY.toFixed(2)} (aus ${groundCandidates.length} Kandidaten), Feinjustierung ${BATTLE_MAP_Y_OFFSET.toFixed(2)}, Gesamt-Y-Verschiebung ${finalYShift.toFixed(2)}`);
+        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}, Waffen-Pickups ${pickupCount}, Auto-Boden ${autoGroundY.toFixed(2)} (aus ${groundCandidates} Kandidaten, groesste Flaeche ${bestGroundArea.toFixed(0)}), Feinjustierung ${BATTLE_MAP_Y_OFFSET.toFixed(2)}, Gesamt-Y-Verschiebung ${finalYShift.toFixed(2)}`);
         resolve(root);
       }, undefined, (err)=>{
         console.warn('[Battle Map] konnte nicht geladen werden:', err);
@@ -1032,6 +1029,7 @@ function tryPickupWeapon(){
     player.weapon=key; player.mag=weapons[key].mag; player.reloading=0;
     setGunModel(player.mesh,key);
     try{ UI.weapon(); UI.status(); UI.toast(`${weapons[key].name} aufgenommen`); }catch(e){}
+    if(typeof updateZoomAvailability==='function') updateZoomAvailability();
   }
   try{ Audio.click(); }catch(e){}
   scene.remove(best.group); const i=weaponPickups.indexOf(best); if(i>=0) weaponPickups.splice(i,1);
@@ -1478,6 +1476,48 @@ $('btnSprint').addEventListener('pointerdown',e=>{ e.preventDefault(); input.spr
 $('btnCrouch').addEventListener('pointerdown',e=>{ e.preventDefault(); input.crouchTap=true; });
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
+
+/* Zoom-System für Spezialwaffen (Sniper, Rocket).
+   - Sniper: 3x Zoom mit rundem Scope-Overlay
+   - Rocket: 1.7x Zoom mit Raketen-Seitenansicht am linken Rand
+   Der Zoom-Button wird nur bei diesen Waffen sichtbar, Toggle beim Antippen. */
+const ZOOM_CONFIG = { sniper:{fov:22, ui:'scope'}, rocket:{fov:40, ui:'rocket'} };
+const CAM_FOV_DEFAULT = camera.fov;
+const zoomState = { active:false };
+function updateZoomAvailability(){
+  const cfg = ZOOM_CONFIG[player.weapon];
+  const btn = $('btnZoom');
+  if(btn) btn.hidden = !cfg || !isTouch;
+  if(!cfg && zoomState.active) setZoom(false);
+}
+function setZoom(on){
+  const cfg = ZOOM_CONFIG[player.weapon];
+  if(on && !cfg) return;
+  zoomState.active = !!on;
+  camera.fov = on ? cfg.fov : CAM_FOV_DEFAULT;
+  camera.updateProjectionMatrix();
+  $('scopeOverlay').hidden = !(on && cfg && cfg.ui==='scope');
+  const rh = $('rocketHud');
+  if(rh){
+    rh.hidden = !(on && cfg && cfg.ui==='rocket');
+    if(!rh.dataset.filled){
+      rh.dataset.filled = '1';
+      rh.innerHTML = '<svg viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+        '<defs><linearGradient id="rk" x1="0" x2="1"><stop offset="0" stop-color="#7a2a1a"/><stop offset="1" stop-color="#3a1108"/></linearGradient></defs>' +
+        '<path d="M100 10 L130 60 L130 250 L70 250 L70 60 Z" fill="url(#rk)" stroke="#1a0a05" stroke-width="2"/>' +
+        '<rect x="86" y="80" width="28" height="40" fill="#e8c470" opacity=".9"/>' +
+        '<rect x="86" y="130" width="28" height="70" fill="#1a0a05" opacity=".7"/>' +
+        '<path d="M70 250 L45 300 L70 290 Z" fill="#3a1108" stroke="#1a0a05" stroke-width="2"/>' +
+        '<path d="M130 250 L155 300 L130 290 Z" fill="#3a1108" stroke="#1a0a05" stroke-width="2"/>' +
+        '<circle cx="100" cy="270" r="10" fill="#ff8030" opacity=".8"/>' +
+        '<text x="100" y="45" text-anchor="middle" fill="#e8dcb8" font-family="monospace" font-size="14" opacity=".7">RKT-7</text>' +
+        '</svg>';
+    }
+  }
+  const b = $('btnZoom'); if(b) b.classList.toggle('on', !!on);
+}
+$('btnZoom').addEventListener('pointerdown',e=>{ e.preventDefault(); setZoom(!zoomState.active); });
+addEventListener('keydown',e=>{ if(e.code==='KeyZ'||e.code==='ShiftRight') { setZoom(!zoomState.active); }});
 // Overlays dürfen keine Spielsteuerung auslösen
 document.querySelectorAll('.streak,.wpn,.tbtn,.ww-slot,#btnWeaponWheel,#weaponWheel').forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
 
@@ -1489,7 +1529,7 @@ function updateWeaponSwitch(dt){
   weaponSwitch.timer-=dt;
   const half=weaponSwitch.duration/2;
   // Das Modell wechselt exakt im Tiefpunkt der Bewegung, nicht davor oder danach
-  if(weaponSwitch.timer<=half && player.weapon!==weaponSwitch.to){ player.weapon=weaponSwitch.to; player.mag=weapons[weaponSwitch.to].mag; player.shootTimer=.15; setGunModel(player.mesh,weaponSwitch.to); UI.weapon(); UI.status(); }
+  if(weaponSwitch.timer<=half && player.weapon!==weaponSwitch.to){ player.weapon=weaponSwitch.to; player.mag=weapons[weaponSwitch.to].mag; player.shootTimer=.15; setGunModel(player.mesh,weaponSwitch.to); UI.weapon(); UI.status(); if(typeof updateZoomAvailability==='function') updateZoomAvailability(); }
   const prog=1-weaponSwitch.timer/weaponSwitch.duration;
   weaponSwitch.dip= prog<.5? prog*2 : 2-prog*2;
   if(weaponSwitch.timer<=0){ weaponSwitch.active=false; weaponSwitch.dip=0; }
@@ -1547,8 +1587,8 @@ function aimAssist(dir){
 function updatePlayer(dt){
   const P=player;
   if(!P.alive){ P.respawn-=dt; const n=$('respawnN'); if(n) n.textContent=Math.max(0,Math.ceil(P.respawn));
-    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn(P.team,Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
-      const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.status(); }
+    if(P.respawn<=0){ P.alive=true; P.hp=100; P.invincible=2; P.weapon='pistol'; setGunModel(P.mesh,'pistol'); P.mag=weapons[P.weapon].mag; P.reloading=0; const s=teamSpawn(P.team,Math.floor(Math.random()*7)); P.x=s.x; P.z=s.z; P.y=0; P.vy=0; P.grounded=true; P.mantle=null; P.stamina=1; P.sprintOn=false; P.sprintLeer=false; P.crouch=false; P.mesh.visible=true;
+      const toCenter=Math.atan2(-P.x,-P.z); cam.yaw=wrapAngle(toCenter-Math.PI); cam.pitch=.12; P.faceYaw=P.aimYaw=P.moveYaw=toCenter; UI.respawn(); UI.weapon(); UI.status(); if(typeof updateZoomAvailability==='function') updateZoomAvailability(); }
     return; }
   if(P.invincible>0) P.invincible-=dt;
   P.shootTimer-=dt;
@@ -1841,22 +1881,25 @@ function tankProbe(tank,angle,dist){
   const px=tank.x+Math.sin(angle)*dist, pz=tank.z+Math.cos(angle)*dist;
   return !tankBlocked(px,pz,tank);
 }
-function spawnTank(team){
-  const spawnX= team==='blue'? -35 : 35, spawnZ= team==='blue'? 38 : -38;
-  const mesh=buildTankMesh(team); mesh.position.set(spawnX,0,spawnZ); scene.add(mesh);
-  const yaw= team==='blue'? Math.PI : 0; mesh.rotation.y=yaw;
-  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:6.2, turretYaw:0, shootTimer:3, cooldown:2.8, target:null, targetTimer:0, radius:2.8,
-    stuckT:0, prevX:spawnX, prevZ:spawnZ, avoidYaw:0, avoidT:0, waypointIdx:0 };
+function spawnTank(team, corner=0){
+  // corner: 0=NW, 1=NE, 2=SW, 3=SE (jede Ecke der Arena)
+  const CX = (corner===1||corner===3)? HALF-10 : -HALF+10;
+  const CZ = (corner===0||corner===1)? -HALF+10 : HALF-10;
+  const mesh=buildTankMesh(team); mesh.position.set(CX,0,CZ); scene.add(mesh);
+  // Yaw so, dass der Panzer grob zur Mitte schaut
+  const yaw = Math.atan2(-CX, -CZ); mesh.rotation.y = yaw;
+  const tank={ team, x:CX, z:CZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:6.2, turretYaw:0, shootTimer:1.5, cooldown:2.2, target:null, targetTimer:0, radius:2.8,
+    stuckT:0, prevX:CX, prevZ:CZ, avoidYaw:0, avoidT:0, waypointIdx:0 };
   tanks.push(tank);
-  tank.obstacle={ x:spawnX, z:spawnZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
-  // Feste Wegpunkte um den zentralen Bunker herum
-  const side=team==='blue'?1:-1;
+  tank.obstacle={ x:CX, z:CZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
+  // Wegpunkte: der Panzer patrouilliert nah an seiner Ecke, faehrt leicht Richtung Mitte,
+  // aber nicht tiefer als HALF*0.4 (~22m vom Rand). So sind sie immer eine Bedrohung, ohne mittig zu verklumpen.
+  const midX = CX * 0.4, midZ = CZ * 0.4;
   tank.waypoints=[
-    {x:spawnX, z:spawnZ-10*side},
-    {x:-38*Math.sign(spawnX), z:spawnZ-15*side},
-    {x:-38*Math.sign(spawnX), z:0},
-    {x:-20*Math.sign(spawnX), z:-8*side},
-    {x:0, z:team==='blue'?12:-12}
+    {x:CX, z:CZ},
+    {x:CX, z:midZ},
+    {x:midX, z:midZ},
+    {x:midX, z:CZ}
   ];
   return tank;
 }
@@ -1997,7 +2040,13 @@ function resetMatch(){
   if(nuke.group){ scene.remove(nuke.group); nuke.group=null; } nuke.active=false; UI.flash.style.opacity=0;
   // Alte Panzer entfernen und neue spawnen
   for(const t of tanks){ scene.remove(t.mesh); const oi=obstacles.indexOf(t.obstacle); if(oi>=0) obstacles.splice(oi,1); }
-  tanks.length=0; if(state.mode!=='flag'){ spawnTank('blue'); spawnTank('red'); }
+  tanks.length=0; if(state.mode!=='flag'){
+    // Blau: NW und SW; Rot: NE und SE — jede Ecke bekommt einen Panzer, Team-Farben diagonal.
+    spawnTank('blue', 0);  // NW
+    spawnTank('red',  1);  // NE
+    spawnTank('blue', 2);  // SW
+    spawnTank('red',  3);  // SE
+  }
   initFlags();
   UI.feedEl.innerHTML=''; UI.center.hidden=true; UI.hideCross(false); UI.score(); UI.streak(); UI.weapon(); UI.status(); UI.toast('');
 }
