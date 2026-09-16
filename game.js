@@ -617,6 +617,10 @@ function preloadBattleMap(){
         root.updateMatrixWorld(true);
 
         console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}, Waffen-Pickups ${pickupCount}, Auto-Boden ${autoGroundY.toFixed(2)} (aus ${groundCandidates} Kandidaten, groesste Flaeche ${bestGroundArea.toFixed(0)}), Feinjustierung ${BATTLE_MAP_Y_OFFSET.toFixed(2)}, Gesamt-Y-Verschiebung ${finalYShift.toFixed(2)}`);
+
+        // 7) Pfadfindungs-Grid neu berechnen: alle neuen Battle-Map-Kollider sind jetzt drin,
+        //    sonst planen die Bots durchs "leere" Grid und werden beim Ausfuehren blockiert.
+        if(typeof rebuildPathGrid==='function'){ rebuildPathGrid(); console.log('[Battle Map] Pfadfindungs-Grid neu berechnet'); }
         resolve(root);
       }, undefined, (err)=>{
         console.warn('[Battle Map] konnte nicht geladen werden:', err);
@@ -1064,6 +1068,24 @@ function moveEntity(e,dx,dz){
 const PATH_STEP=2.5, PATH_SIZE=Math.floor(ARENA/PATH_STEP)+1, PATH_RADIUS=1.0;
 const grid=[];
 for(let z=0;z<PATH_SIZE;z++){ grid[z]=[]; for(let x=0;x<PATH_SIZE;x++){ const wx=(x-(PATH_SIZE-1)/2)*PATH_STEP, wz=(z-(PATH_SIZE-1)/2)*PATH_STEP; grid[z][x]=!blocked(wx,wz,PATH_RADIUS); } }
+// Nach dem Laden der Battle-Map muss das Grid neu berechnet werden, sonst laufen Bots
+// gegen unsichtbare Kollider und wirken eingefroren. Panzer werden ausgelassen (dynamic),
+// damit sie einander im Grid nicht als permanent versperrt sehen.
+function rebuildPathGrid(){
+  for(let z=0;z<PATH_SIZE;z++){
+    for(let x=0;x<PATH_SIZE;x++){
+      const wx=(x-(PATH_SIZE-1)/2)*PATH_STEP, wz=(z-(PATH_SIZE-1)/2)*PATH_STEP;
+      let block = wx<-HALF+2.2 || wx>HALF-2.2 || wz<-HALF+2.2 || wz>HALF-2.2;
+      if(!block){
+        for(const o of obstacles){
+          if(o.dynamic) continue;
+          if(wx>o.x-o.w/2-PATH_RADIUS && wx<o.x+o.w/2+PATH_RADIUS && wz>o.z-o.d/2-PATH_RADIUS && wz<o.z+o.d/2+PATH_RADIUS){ block=true; break; }
+        }
+      }
+      grid[z][x] = !block;
+    }
+  }
+}
 const toGrid=(x,z)=>({x:Math.max(0,Math.min(PATH_SIZE-1,Math.round(x/PATH_STEP+(PATH_SIZE-1)/2))),z:Math.max(0,Math.min(PATH_SIZE-1,Math.round(z/PATH_STEP+(PATH_SIZE-1)/2)))});
 const toWorld=(x,z)=>({x:(x-(PATH_SIZE-1)/2)*PATH_STEP,z:(z-(PATH_SIZE-1)/2)*PATH_STEP});
 const walk=(x,z)=> x>=0&&z>=0&&x<PATH_SIZE&&z<PATH_SIZE&&grid[z][x];
@@ -1477,11 +1499,9 @@ $('btnCrouch').addEventListener('pointerdown',e=>{ e.preventDefault(); input.cro
 $('btnCam').addEventListener('pointerdown',e=>{ e.preventDefault(); toggleFpv(); });
 $('btnReload').addEventListener('pointerdown',e=>{ e.preventDefault(); reload(); });
 
-/* Zoom-System für Spezialwaffen (Sniper, Rocket).
-   - Sniper: 3x Zoom mit rundem Scope-Overlay
-   - Rocket: 1.7x Zoom mit Raketen-Seitenansicht am linken Rand
-   Der Zoom-Button wird nur bei diesen Waffen sichtbar, Toggle beim Antippen. */
-const ZOOM_CONFIG = { sniper:{fov:22, ui:'scope'}, rocket:{fov:40, ui:'rocket'} };
+/* Zoom-System fuer den Sniper (3x Vergroesserung mit rundem Scope-Overlay).
+   Der Zoom-Button wird nur bei Sniper eingeblendet. Rocket schiesst normal ohne Sonder-Overlay. */
+const ZOOM_CONFIG = { sniper:{fov:22, ui:'scope'} };
 const CAM_FOV_DEFAULT = camera.fov;
 const zoomState = { active:false };
 function updateZoomAvailability(){
@@ -1497,23 +1517,6 @@ function setZoom(on){
   camera.fov = on ? cfg.fov : CAM_FOV_DEFAULT;
   camera.updateProjectionMatrix();
   $('scopeOverlay').hidden = !(on && cfg && cfg.ui==='scope');
-  const rh = $('rocketHud');
-  if(rh){
-    rh.hidden = !(on && cfg && cfg.ui==='rocket');
-    if(!rh.dataset.filled){
-      rh.dataset.filled = '1';
-      rh.innerHTML = '<svg viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-        '<defs><linearGradient id="rk" x1="0" x2="1"><stop offset="0" stop-color="#7a2a1a"/><stop offset="1" stop-color="#3a1108"/></linearGradient></defs>' +
-        '<path d="M100 10 L130 60 L130 250 L70 250 L70 60 Z" fill="url(#rk)" stroke="#1a0a05" stroke-width="2"/>' +
-        '<rect x="86" y="80" width="28" height="40" fill="#e8c470" opacity=".9"/>' +
-        '<rect x="86" y="130" width="28" height="70" fill="#1a0a05" opacity=".7"/>' +
-        '<path d="M70 250 L45 300 L70 290 Z" fill="#3a1108" stroke="#1a0a05" stroke-width="2"/>' +
-        '<path d="M130 250 L155 300 L130 290 Z" fill="#3a1108" stroke="#1a0a05" stroke-width="2"/>' +
-        '<circle cx="100" cy="270" r="10" fill="#ff8030" opacity=".8"/>' +
-        '<text x="100" y="45" text-anchor="middle" fill="#e8dcb8" font-family="monospace" font-size="14" opacity=".7">RKT-7</text>' +
-        '</svg>';
-    }
-  }
   const b = $('btnZoom'); if(b) b.classList.toggle('on', !!on);
 }
 $('btnZoom').addEventListener('pointerdown',e=>{ e.preventDefault(); setZoom(!zoomState.active); });
@@ -1943,15 +1946,14 @@ function updateTanks(dt){
       }
     }
     // --- Steering-basierte Bewegung ---
-    // Aktueller Wegpunkt
+    // Aktueller Wegpunkt: die Panzer patrouillieren in einer Endlosschleife durch ihre Ecke.
     const wp=tank.waypoints[tank.waypointIdx];
-    if(!wp) continue; // am Ziel
+    if(!wp) continue;
     const wpDist=Math.hypot(wp.x-tank.x,wp.z-tank.z);
-    if(wpDist<6&&tank.waypointIdx<tank.waypoints.length-1) tank.waypointIdx++;
+    if(wpDist<6) tank.waypointIdx = (tank.waypointIdx + 1) % tank.waypoints.length;
     const goalX=tank.waypoints[tank.waypointIdx].x;
     const goalZ=tank.waypoints[tank.waypointIdx].z;
     const goalDist=Math.hypot(goalX-tank.x,goalZ-tank.z);
-    if(goalDist<5) continue; // nah genug am letzten Punkt
     // Wunschrichtung zum Wegpunkt
     let wantDir=Math.atan2(goalX-tank.x,goalZ-tank.z);
     // Stuck-Detection: alle 1.5s pruefen
