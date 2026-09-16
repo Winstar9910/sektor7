@@ -1754,7 +1754,10 @@ function updatePlayer(dt){
       cam.yaw = wrapAngle(cam.yaw - ax * sens);
       cam.pitch = Math.max(-1.0, Math.min(1.0, cam.pitch + az * sens * 0.55));
       aimDir.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw)).normalize();
-      aimAssist(aimDir);
+      // Zielhilfe nur bei den "Spraywaffen" — Sniper und alle Zoom-Modi zielen manuell.
+      // Sonst wuerde die Kugel beim Praezisionsschuss zum naechsten Feind gezogen und
+      // der Spieler nimmt das als "das Zielvisier springt zur Mitte" wahr.
+      if(zoomState.level===0 && player.weapon!=='sniper' && player.weapon!=='rocket'){ aimAssist(aimDir); }
     } else {
       // Stick nur beruehrt, keine Auslenkung: geradeaus durch das Fadenkreuz schiessen
       aimDir.set(-Math.sin(cam.yaw),0,-Math.cos(cam.yaw));
