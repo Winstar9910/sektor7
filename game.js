@@ -149,6 +149,14 @@ const texWall = makeTex(256,(g,s)=>{ g.fillStyle='#5d5a52'; g.fillRect(0,0,s,s);
 /* ======================================================================
    KARTE
    ====================================================================== */
+// Battle-Map-Setup: Ist USE_BATTLE_MAP true, laden wir battle-map.glb, passen sie
+// in die Arena ein und leiten Kollider aus ihren Meshes ab. Die klassische
+// Innen-Deko (Container, Kisten, Sandsaecke, Faesser, Bunker) wird dann
+// weggelassen, damit sie nicht mit der neuen Map kollidiert.
+const USE_BATTLE_MAP = true;
+const BATTLE_MAP_URL = 'battle-map.glb';
+const BATTLE_MAP_FIT_XZ = 100;                 // Zielspanne der horizontalen Ausdehnung in Weltmetern
+const USE_BUILTIN_PROPS = !USE_BATTLE_MAP;     // altes Innen-Setup nur, wenn keine Map genutzt wird
 const ARENA = 110, HALF = ARENA/2;
 const obstacles = [];
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(ARENA+40,ARENA+40), new THREE.MeshStandardMaterial({map:texGround, roughness:.95, metalness:0}));
@@ -181,17 +189,19 @@ box( HALF,0,2,7,ARENA+4,matWall); solid( HALF,0,2,7,ARENA+4);
 // Ecktürme
 [[-HALF+1,-HALF+1],[HALF-1,-HALF+1],[-HALF+1,HALF-1],[HALF-1,HALF-1]].forEach(([x,z])=>{ box(x,z,5,11,5,matConcrete); });
 
-// Innenraum – Deckung in Symmetrie
-bunker(0,-6,10,3.2,22);
-bunker(0,30,20,4,4);   bunker(0,-30,20,4,4);
-container(-26,-20,false,matMetalA); container(26,20,false,matMetalB);
-container(24,-22,true,matMetalC); container(-24,22,true,matMetalA);
-bunker(-40,4,7,8,7); bunker(40,-4,7,8,7);
-crateStack(12,4); crateStack(-15,-6);
-sandbags(-8,18,10,false); sandbags(8,-18,10,false);
-sandbags(-32,-2,10,true); sandbags(32,2,10,true);
-barrel(-20,12); barrel(-21.4,13.2); barrel(20,-12); barrel(21.4,-13.2); barrel(-44,-40); barrel(44,40);
-bunker(-14,36,6,2.2,6); bunker(14,-36,6,2.2,6);
+// Innenraum – Deckung in Symmetrie (nur ohne externe Battle-Map)
+if(USE_BUILTIN_PROPS){
+  bunker(0,-6,10,3.2,22);
+  bunker(0,30,20,4,4);   bunker(0,-30,20,4,4);
+  container(-26,-20,false,matMetalA); container(26,20,false,matMetalB);
+  container(24,-22,true,matMetalC); container(-24,22,true,matMetalA);
+  bunker(-40,4,7,8,7); bunker(40,-4,7,8,7);
+  crateStack(12,4); crateStack(-15,-6);
+  sandbags(-8,18,10,false); sandbags(8,-18,10,false);
+  sandbags(-32,-2,10,true); sandbags(32,2,10,true);
+  barrel(-20,12); barrel(-21.4,13.2); barrel(20,-12); barrel(21.4,-13.2); barrel(-44,-40); barrel(44,40);
+  bunker(-14,36,6,2.2,6); bunker(14,-36,6,2.2,6);
+}
 
 // Bodenmarkierungen und Details
 const lineMat=new THREE.MeshBasicMaterial({color:0xe8dcb8,transparent:true,opacity:.35});
@@ -436,6 +446,82 @@ function preloadSwatModel(){
   return SWAT_LOAD_PROMISE;
 }
 preloadSwatModel();
+
+/* ----------------------------------------------------------------------
+   Battle-Map: externes GLB laden, in die Arena einpassen und Kollider
+   daraus ableiten. Faellt die Datei aus, laeuft das Spiel ohne Map weiter.
+   ---------------------------------------------------------------------- */
+let BATTLE_MAP_ROOT = null;
+let BATTLE_MAP_LOAD_PROMISE = null;
+function preloadBattleMap(){
+  if(!USE_BATTLE_MAP) return Promise.resolve(null);
+  if(BATTLE_MAP_LOAD_PROMISE) return BATTLE_MAP_LOAD_PROMISE;
+  BATTLE_MAP_LOAD_PROMISE = new Promise((resolve)=>{
+    try{
+      const loader = new GLTFLoader();
+      loader.load(BATTLE_MAP_URL,(gltf)=>{
+        const root = gltf.scene;
+
+        // 1) Original-Bounding-Box vermessen, dann horizontal in die Arena einpassen.
+        const box0 = new THREE.Box3().setFromObject(root);
+        const size0 = box0.getSize(new THREE.Vector3());
+        const horiz = Math.max(size0.x, size0.z) || 1;
+        const scale = BATTLE_MAP_FIT_XZ / horiz;
+        root.scale.setScalar(scale);
+
+        // 2) Nach dem Skalieren horizontal auf (0,0) zentrieren und minY auf 0 legen.
+        root.updateMatrixWorld(true);
+        const box1 = new THREE.Box3().setFromObject(root);
+        const c = box1.getCenter(new THREE.Vector3());
+        root.position.x -= c.x;
+        root.position.z -= c.z;
+        root.position.y -= box1.min.y;
+        root.updateMatrixWorld(true);
+
+        // 3) Shadows und Frustum-Culling fuer alle Meshes vorbereiten.
+        root.traverse(o=>{
+          if(o.isMesh){
+            o.castShadow = true;
+            o.receiveShadow = true;
+            if(o.frustumCulled!==undefined) o.frustumCulled = false;
+          }
+        });
+        scene.add(root);
+        BATTLE_MAP_ROOT = root;
+
+        // 4) Kollider aus den Meshes ableiten. Jede Mesh wird zu einer AABB.
+        //    Boden-/Deckenflaechen (sehr flach) sind begehbar und werden uebersprungen.
+        //    Winzige Deko-Meshes ebenso. Meshes ausserhalb der Aussenmauern werden geclippt.
+        const bb = new THREE.Box3(), sz = new THREE.Vector3(), ct = new THREE.Vector3();
+        const CLIP = HALF - 1.5;
+        let colliderCount = 0;
+        root.traverse(o=>{
+          if(!o.isMesh) return;
+          bb.setFromObject(o);
+          bb.getSize(sz);
+          bb.getCenter(ct);
+          if(sz.y < 0.35) return;                                   // flach = Boden/Decke/Decal
+          if(sz.x < 0.25 && sz.z < 0.25) return;                    // sehr schmal = Deko
+          if(ct.x < -CLIP || ct.x > CLIP || ct.z < -CLIP || ct.z > CLIP) return; // ausserhalb der Arena
+          // Der Kollisionskasten reicht in dieser Engine von y=0 bis y=h, ist also am Boden verankert.
+          const h = Math.max(bb.max.y, 0.4);
+          obstacles.push({ x: ct.x, z: ct.z, w: sz.x, h, d: sz.z });
+          colliderCount++;
+        });
+        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}`);
+        resolve(root);
+      }, undefined, (err)=>{
+        console.warn('[Battle Map] konnte nicht geladen werden:', err);
+        resolve(null);
+      });
+    }catch(e){
+      console.warn('[Battle Map] Fehler:', e);
+      resolve(null);
+    }
+  });
+  return BATTLE_MAP_LOAD_PROMISE;
+}
+preloadBattleMap();
 
 const TEAM_ACCENT={ blue:new THREE.Color(0x2f6bc2), red:new THREE.Color(0xb43325) };
 
@@ -1818,7 +1904,11 @@ function openTeamSelect(){
   $('startScreen').hidden=true; $('endScreen').hidden=true;
   const ts=$('teamSelect'); if(ts) ts.hidden=false;
   const load=$('tsLoading');
-  if(load){ load.hidden=!!SWAT_TEMPLATE; preloadSwatModel().then(()=>{ load.hidden=true; }); }
+  if(load){
+    const mapReady = !USE_BATTLE_MAP || !!BATTLE_MAP_ROOT;
+    load.hidden = !!SWAT_TEMPLATE && mapReady;
+    Promise.all([preloadSwatModel(), preloadBattleMap()]).then(()=>{ load.hidden=true; });
+  }
 }
 function chooseTeamAndStart(team){
   player.team=team;
