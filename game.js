@@ -867,12 +867,12 @@ let GOAL=30;   // im Startmenue einstellbar, 10 bis 200
 const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
-  sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:180,pellets:1,spread:.003,mag:5, reload:2.6,auto:false,range:170,kick:1.8,tracer:0xa0e0ff},
+  sniper: {name:'Sniper',  cooldown:1.2, damage:55, speed:220,pellets:1,spread:.001,mag:2, reload:2.8,auto:false,range:250,kick:1.8,tracer:0xa0e0ff},
   pistol: {name:'Pistol',  cooldown:.34, damage:22, speed:88, pellets:1,spread:.018,mag:12,reload:1.4,auto:false,range:32, kick:.7,tracer:0xffcc80},
   // Spezialwaffen von den Podesten der Battle-Map
-  flamethrower:{name:'Flammenwerfer',cooldown:.05, damage:7,  speed:50, pellets:1,spread:.16, mag:120,reload:2.6,auto:true, range:16, kick:.25,tracer:0xff6a10},
-  gatling:     {name:'Gatling',      cooldown:.06, damage:11, speed:110,pellets:1,spread:.055,mag:100,reload:3.4,auto:true, range:65, kick:.45,tracer:0xffcc60},
-  rocket:      {name:'Rocket',       cooldown:1.35,damage:95, speed:80, pellets:1,spread:.006,mag:4,  reload:3.2,auto:false,range:120,kick:2.2,tracer:0xff3020, explosive:true, explodeRadius:6.5}
+  flamethrower:{name:'Flammenwerfer',cooldown:.045,damage:2.5, speed:35, pellets:1,spread:.12, mag:150,reload:2.8,auto:true, range:14, kick:.15,tracer:0xff6a10, beam:true},
+  gatling:     {name:'Gatling',      cooldown:.06, damage:11,  speed:110,pellets:1,spread:.055,mag:100,reload:3.4,auto:true, range:65, kick:.45,tracer:0xffcc60},
+  rocket:      {name:'Rocket',       cooldown:1.35,damage:105, speed:80, pellets:1,spread:.006,mag:4,  reload:3.2,auto:false,range:120,kick:2.2,tracer:0xff3020, explosive:true, explodeRadius:6.5}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6, weaponDrop:false };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
@@ -1122,10 +1122,10 @@ const _v=new THREE.Vector3(), _q=new THREE.Quaternion(), _fwd=new THREE.Vector3(
 
 function spawnBullet(shooter,pos,dir,w,team){
   const mesh=bulletPool.pop()||new THREE.Mesh(tracerGeo,tracerMat(w.tracer)); mesh.material=tracerMat(w.tracer);
-  mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(_fwd,dir); mesh.visible=true; scene.add(mesh);
+  mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(_fwd,dir); mesh.visible=!w.beam; scene.add(mesh);
   // Explosive Geschosse (Rocket) sind dicker und ziehen eine kurze Rauchspur.
   if(w.explosive){ mesh.scale.set(3.2, 3.2, 2.4); } else { mesh.scale.set(1,1,1); }
-  bullets.push({mesh,dir:dir.clone(),speed:w.speed,damage:w.damage,team,shooter,life:w.range/w.speed,px:pos.x,py:pos.y,pz:pos.z, explosive:!!w.explosive, explodeRadius:w.explodeRadius||6, smokeT:0});
+  bullets.push({mesh,dir:dir.clone(),speed:w.speed,damage:w.damage,team,shooter,life:w.range/w.speed,px:pos.x,py:pos.y,pz:pos.z, explosive:!!w.explosive, explodeRadius:w.explodeRadius||6, smokeT:0, beam:!!w.beam});
 }
 function fire(shooter,dir3,muzzle){
   const w=weapons[shooter.weapon];
@@ -1144,6 +1144,8 @@ function fire(shooter,dir3,muzzle){
   }
   Audio.shot(shooter.weapon, shooter===player?null:{x:shooter.x,z:shooter.z});
   muzzleFlash(muzzle,dir3, shooter===player);
+  // Flammenwerfer: kraeftiger Feuer-Burst am Muendungslauf, damit das Fauchen sichtbar wird
+  if(w.beam){ burstParticles(muzzle,3,'fire',7,1.9,.35,-1); if(Math.random()<.5) burstParticles(muzzle,1,'smoke',2.5,1.4,.5,-1); }
   // Rückstoß klingt genau bis zum nächsten Schuss ab – jede Waffe bekommt ihren eigenen Takt
   if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=w.kick; u.recoilRate=Math.max(2.6,Math.min(14,1/Math.max(.07,w.cooldown*.85))); }
 }
@@ -1188,16 +1190,20 @@ function damage(target,amount,attacker){
 }
 function hurtFlash(attacker){ if(!attacker) return; const dx=attacker.x-player.x, dz=attacker.z-player.z; const ang=Math.atan2(dx,dz); let rel=ang-cam.yaw; const deg=(-rel*180/Math.PI+180)%360; UI.hurtDir.style.setProperty('--a',deg+'deg'); UI.hurtDir.style.opacity=1; UI.hurtDirT=.5; }
 
-function hitEntity(b,e){ // Segment gegen Kapsel (Körperzylinder)
+function hitEntity(b,e){ // Segment gegen Kapsel (Körperzylinder). Return: false | 'head' | 'body'.
   const nx=b.mesh.position.x,ny=b.mesh.position.y,nz=b.mesh.position.z;
   const ax=b.px-e.x,az=b.pz-e.z,bx=nx-e.x,bz=nz-e.z; const dx=bx-ax,dz=bz-az; const l2=dx*dx+dz*dz; let t=0; if(l2>0) t=Math.max(0,Math.min(1,-(ax*dx+az*dz)/l2));
-  const cx=ax+dx*t,cz=az+dz*t; if(cx*cx+cz*cz>.78*.78) return false; const y=b.py+(ny-b.py)*t; const ey=e.y||0; return y>ey&&y<ey+(e.height||3.6);
+  const cx=ax+dx*t,cz=az+dz*t; if(cx*cx+cz*cz>.78*.78) return false;
+  const y=b.py+(ny-b.py)*t; const ey=e.y||0; const h=e.height||3.6;
+  if(y<ey||y>ey+h) return false;
+  return (y > ey + h*0.75) ? 'head' : 'body';
 }
 function updateBullets(dt){
   for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i]; b.px=b.mesh.position.x; b.py=b.mesh.position.y; b.pz=b.mesh.position.z;
     b.mesh.position.addScaledVector(b.dir,b.speed*dt); b.life-=dt; const p=b.mesh.position; let remove=false, spark=true;
-    // Rauchspur fuer Raketen
+    // Rauchspur fuer Raketen, Flammenspur fuer den Flammenwerfer
     if(b.explosive){ b.smokeT-=dt; if(b.smokeT<=0){ b.smokeT=.03; burstParticles(p,1,'smoke',1.4,.8,.45,-1); burstParticles(p,1,'fire',2.2,.7,.18,-1); } }
+    else if(b.beam){ burstParticles(p,2,'fire',3.5,1.6,.28,-2); if(Math.random()<.35) burstParticles(p,1,'smoke',1.2,1.1,.35,-1); }
     if(b.life<=0){ remove=true; spark=false; }
     else if(p.y<0){ remove=true; p.y=.02; }
     else {
@@ -1216,8 +1222,11 @@ function updateBullets(dt){
         }
       }
     }
-    if(!remove && b.team!==player.team && player.alive && hitEntity(b,player)){ damage(player,b.damage,b.shooter); remove=true; spark=false; burstParticles(p,4,'dust',3,.8,.25); }
-    if(!remove){ for(const bot of bots){ if(!bot.alive||bot.team===b.team) continue; if(hitEntity(b,bot)){ damage(bot,b.damage,b.shooter); remove=true; spark=false; burstParticles(p,4,state.splash?'blood':'dust',3,.8,.25); break; } } }
+    if(!remove && b.team!==player.team && player.alive){
+      const zone = hitEntity(b,player);
+      if(zone){ const dmg = b.damage * (zone==='head'?2.5:1); damage(player,dmg,b.shooter); remove=true; spark=false; burstParticles(p,4,'dust',3,.8,.25); }
+    }
+    if(!remove){ for(const bot of bots){ if(!bot.alive||bot.team===b.team) continue; const zone=hitEntity(b,bot); if(zone){ const dmg=b.damage*(zone==='head'?2.5:1); const wasHead = zone==='head' && b.shooter===player; damage(bot,dmg,b.shooter); if(wasHead && bot.hp<=0){ try{ UI.toast('Kopfschuss'); }catch(e){} } remove=true; spark=false; burstParticles(p,4,state.splash?'blood':'dust',3,.8,.25); break; } } }
     if(!remove){ for(const tank of tanks){ if(hitTank(b,tank)){ damageTank(tank,b.damage); remove=true; break; } } }
     if(remove){
       // Raketen explodieren IMMER (auch bei direktem Treffer), mit halbem Splashschaden
@@ -1517,6 +1526,10 @@ function setZoom(on){
   camera.fov = on ? cfg.fov : CAM_FOV_DEFAULT;
   camera.updateProjectionMatrix();
   $('scopeOverlay').hidden = !(on && cfg && cfg.ui==='scope');
+  // Zoom aktiviert First-Person, damit Sichtlinie und Waffe deckungsgleich sind.
+  // Beim Ausschalten kehren wir zur vorherigen Sicht zurueck.
+  if(on && !cam.fpv){ zoomState.wasFpv=false; cam.fpv=true; }
+  else if(!on && zoomState.wasFpv===false){ cam.fpv=false; cam.dist=9.5; zoomState.wasFpv=null; }
   const b = $('btnZoom'); if(b) b.classList.toggle('on', !!on);
 }
 $('btnZoom').addEventListener('pointerdown',e=>{ e.preventDefault(); setZoom(!zoomState.active); });
@@ -1884,31 +1897,54 @@ function tankProbe(tank,angle,dist){
   const px=tank.x+Math.sin(angle)*dist, pz=tank.z+Math.cos(angle)*dist;
   return !tankBlocked(px,pz,tank);
 }
-function spawnTank(team, corner=0){
-  // corner: 0=NW, 1=NE, 2=SW, 3=SE (jede Ecke der Arena)
-  const CX = (corner===1||corner===3)? HALF-10 : -HALF+10;
-  const CZ = (corner===0||corner===1)? -HALF+10 : HALF-10;
-  const mesh=buildTankMesh(team); mesh.position.set(CX,0,CZ); scene.add(mesh);
-  // Yaw so, dass der Panzer grob zur Mitte schaut
-  const yaw = Math.atan2(-CX, -CZ); mesh.rotation.y = yaw;
-  const tank={ team, x:CX, z:CZ, yaw, hp:500, maxHp:500, alive:true, mesh, speed:6.2, turretYaw:0, shootTimer:1.5, cooldown:2.2, target:null, targetTimer:0, radius:2.8,
-    stuckT:0, prevX:CX, prevZ:CZ, avoidYaw:0, avoidT:0, waypointIdx:0 };
+function spawnTank(team){
+  // Zwei Panzer teilen sich das Feld diagonal in zwei nicht ueberlappende Dreiecke:
+  // Blau patrouilliert im NW-Dreieck (x<0, z<0), Rot im SE-Dreieck (x>0, z>0).
+  // So begegnen sich die Panzer nicht, und der Rest der Karte gehoert den Bots.
+  const wps = team==='blue'
+    ? [ {x:-45,z:-45}, {x:-15,z:-45}, {x:-45,z: 15} ]
+    : [ {x: 45,z: 45}, {x: 15,z: 45}, {x: 45,z:-15} ];
+  const spawnX = wps[0].x, spawnZ = wps[0].z;
+  const mesh=buildTankMesh(team); mesh.position.set(spawnX,0,spawnZ); scene.add(mesh);
+  const yaw = Math.atan2(-spawnX, -spawnZ); mesh.rotation.y = yaw;
+  const tank={ team, x:spawnX, z:spawnZ, yaw, hp:500, maxHp:500, alive:true, respawnT:0, mesh, speed:5.4, turretYaw:0, shootTimer:6, cooldown:12, target:null, targetTimer:0, radius:2.8,
+    stuckT:0, prevX:spawnX, prevZ:spawnZ, avoidYaw:0, avoidT:0, waypointIdx:0, waypoints:wps };
   tanks.push(tank);
-  tank.obstacle={ x:CX, z:CZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
-  // Wegpunkte: der Panzer patrouilliert nah an seiner Ecke, faehrt leicht Richtung Mitte,
-  // aber nicht tiefer als HALF*0.4 (~22m vom Rand). So sind sie immer eine Bedrohung, ohne mittig zu verklumpen.
-  const midX = CX * 0.4, midZ = CZ * 0.4;
-  tank.waypoints=[
-    {x:CX, z:CZ},
-    {x:CX, z:midZ},
-    {x:midX, z:midZ},
-    {x:midX, z:CZ}
-  ];
+  tank.obstacle={ x:spawnX, z:spawnZ, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
+  // Sichtbare Panzerstrasse als flache dunkle Streifen zwischen den Waypoints
+  buildTankRoad(tank);
   return tank;
+}
+function buildTankRoad(tank){
+  const wps = tank.waypoints;
+  const roadMat = new THREE.MeshBasicMaterial({ color: tank.team==='blue'? 0x1f3a6c : 0x6c1f1f, transparent:true, opacity:.45, depthWrite:false });
+  const roadGroup = new THREE.Group();
+  for(let i=0;i<wps.length;i++){
+    const a = wps[i], b = wps[(i+1) % wps.length];
+    const dx = b.x-a.x, dz = b.z-a.z, len = Math.hypot(dx,dz);
+    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(len, 6), roadMat);
+    stripe.rotation.x = -Math.PI/2;
+    stripe.rotation.z = -Math.atan2(dz, dx);
+    stripe.position.set((a.x+b.x)/2, .015, (a.z+b.z)/2);
+    roadGroup.add(stripe);
+  }
+  scene.add(roadGroup);
+  tank.roadGroup = roadGroup;
+}
+function respawnTank(tank){
+  const spawn = tank.waypoints[0];
+  tank.x = spawn.x; tank.z = spawn.z; tank.hp = tank.maxHp; tank.alive = true; tank.mesh.visible = true;
+  tank.mesh.position.set(tank.x, 0, tank.z);
+  tank.waypointIdx = 0; tank.shootTimer = 4;
+  tank.obstacle = { x:tank.x, z:tank.z, w:5.5, h:3, d:8, dynamic:true, tank }; obstacles.push(tank.obstacle);
+  UI.toast(tank.team==='blue'? 'Blauer Panzer respawnt' : 'Roter Panzer respawnt');
 }
 function updateTanks(dt){
   for(const tank of tanks){
-    if(!tank.alive) continue;
+    if(!tank.alive){
+      if(tank.respawnT > 0){ tank.respawnT -= dt; if(tank.respawnT <= 0) respawnTank(tank); }
+      continue;
+    }
     tank.shootTimer-=dt; tank.targetTimer-=dt;
     // --- Zielsuche ---
     if(tank.targetTimer<=0){
@@ -2018,8 +2054,10 @@ function damageTank(tank,amount){
   if(!tank.alive) return;
   tank.hp-=amount; burstParticles(new THREE.Vector3(tank.x,2,tank.z),6,'spark',8,1.2,.4);
   if(tank.hp<=0){ tank.hp=0; tank.alive=false; tank.mesh.visible=false; explode(tank.x,tank.z,10,60,true);
-    UI.toast(tank.team==='blue'? 'Blauer Panzer zerstoert!' : 'Roter Panzer zerstoert!');
-    const idx=obstacles.indexOf(tank.obstacle); if(idx>=0) obstacles.splice(idx,1); }
+    UI.toast(tank.team==='blue'? 'Blauer Panzer zerstoert! Respawn in 5:00' : 'Roter Panzer zerstoert! Respawn in 5:00');
+    const idx=obstacles.indexOf(tank.obstacle); if(idx>=0) obstacles.splice(idx,1);
+    tank.respawnT = 300; // 5 Minuten
+  }
 }
 function hitTank(b,tank){
   if(!tank.alive||b.team===tank.team) return false;
@@ -2040,14 +2078,11 @@ function resetMatch(){
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
   if(heli.active){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); }
   if(nuke.group){ scene.remove(nuke.group); nuke.group=null; } nuke.active=false; UI.flash.style.opacity=0;
-  // Alte Panzer entfernen und neue spawnen
-  for(const t of tanks){ scene.remove(t.mesh); const oi=obstacles.indexOf(t.obstacle); if(oi>=0) obstacles.splice(oi,1); }
+  // Alte Panzer entfernen (inklusive Strassen) und neue spawnen
+  for(const t of tanks){ scene.remove(t.mesh); if(t.roadGroup) scene.remove(t.roadGroup); const oi=obstacles.indexOf(t.obstacle); if(oi>=0) obstacles.splice(oi,1); }
   tanks.length=0; if(state.mode!=='flag'){
-    // Blau: NW und SW; Rot: NE und SE — jede Ecke bekommt einen Panzer, Team-Farben diagonal.
-    spawnTank('blue', 0);  // NW
-    spawnTank('red',  1);  // NE
-    spawnTank('blue', 2);  // SW
-    spawnTank('red',  3);  // SE
+    spawnTank('blue');
+    spawnTank('red');
   }
   initFlags();
   UI.feedEl.innerHTML=''; UI.center.hidden=true; UI.hideCross(false); UI.score(); UI.streak(); UI.weapon(); UI.status(); UI.toast('');
