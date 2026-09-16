@@ -546,6 +546,9 @@ preloadSwatModel();
    ---------------------------------------------------------------------- */
 let BATTLE_MAP_ROOT = null;
 let BATTLE_MAP_LOAD_PROMISE = null;
+// Beim Battle-Map-Load gefundene Waffen-Podest-Positionen. Werden bei jedem Match-Start
+// (resetMatch) frisch als Pickups gespawnt, damit die Sonderwaffen jede Runde wieder da sind.
+const BATTLE_MAP_PICKUP_POSITIONS = [];
 // Podest-Beschriftungen aus der GLB -> unsere Waffenkeys
 const BATTLE_MAP_PICKUP_PLATE_TO_WEAPON = {
   pickup_plate_FT: 'flamethrower',
@@ -567,13 +570,14 @@ const BATTLE_MAP_NO_COLLIDER = new Set([
   // Deko-Panzer in der Karte: keine Kollider, werden zusaetzlich versteckt (nur echte spawnTank-Panzer bleiben)
   'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel'
 ]);
-// Diese Namen werden nach dem Load unsichtbar geschaltet: Deko-Panzer, statische Rauch-
-// und Feuerwolken aus der Battle-Map. Die Wolken sind unbewegte Blobs mitten in der Luft
-// und wirken dadurch stoerend statt atmosphaerisch.
+// Diese Namen werden nach dem Load unsichtbar geschaltet: Deko-Panzer aus der Battle-Map.
 const BATTLE_MAP_HIDE = new Set([
-  'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel',
-  'smoke','fire','fire_light','flame_inner','flame_outer'
+  'tank','tank_barrel','tank_glacis','tank_hull','tank_muzzle','tank_tread','tank_turret','tank_wheel'
 ]);
+// Rauch- und Feuermeshes werden gesammelt und leicht animiert (schwebende Bewegung + Pulsieren),
+// damit sie nicht wie statische Klumpen in der Luft aussehen.
+const BATTLE_MAP_ANIMATED = new Set(['smoke','fire','fire_light','flame_inner','flame_outer']);
+const battleMapAnimated = [];
 // Diese Meshes werden IMMER kollidiert, auch wenn sie schmaler/niedriger als der Standardfilter sind.
 // Damit stoppen z.B. Stacheldraht-Pfosten und Barrikaden ab jetzt auch Kugeln.
 const BATTLE_MAP_FORCE_COLLIDER = new Set([
@@ -646,6 +650,14 @@ function preloadBattleMap(){
             o.receiveShadow = true;
             if(o.frustumCulled!==undefined) o.frustumCulled = false;
             if(BATTLE_MAP_HIDE.has(o.name)){ o.visible = false; hiddenCount++; }
+            if(BATTLE_MAP_ANIMATED.has(o.name)){
+              battleMapAnimated.push({
+                mesh:o,
+                baseY:o.position.y,
+                phase:Math.random()*Math.PI*2,
+                isFire: o.name==='fire' || o.name.startsWith('flame') || o.name==='fire_light'
+              });
+            }
           }
         });
         scene.add(root);
@@ -670,7 +682,8 @@ function preloadBattleMap(){
           }
           if(ct.x < -CLIP || ct.x > CLIP || ct.z < -CLIP || ct.z > CLIP) return; // ausserhalb der Arena
           const h = Math.max(bb.max.y, 0.4);
-          const collider = { x: ct.x, z: ct.z, w: Math.max(sz.x, .2), h, d: Math.max(sz.z, .2) };
+          // Kollider etwas schmaler als das Mesh, damit der Spieler dicht an Objekten vorbei kann.
+          const collider = { x: ct.x, z: ct.z, w: Math.max(sz.x*.85, .2), h, d: Math.max(sz.z*.85, .2) };
           const ex = BATTLE_MAP_EXPLOSIVE[name];
           if(ex){
             collider.explosive = true;
@@ -684,14 +697,14 @@ function preloadBattleMap(){
           colliderCount++;
         });
 
-        // 5) Waffenpodeste erkennen: an jeder pickup_plate_* eine echte Aufhebe-Zone spawnen.
+        // 5) Waffenpodeste erkennen: Positionen sammeln, Pickups spawnt resetMatch pro Runde.
         const _pos = new THREE.Vector3();
         let pickupCount = 0;
         root.traverse(o=>{
           const w = BATTLE_MAP_PICKUP_PLATE_TO_WEAPON[o.name];
           if(!w) return;
           o.getWorldPosition(_pos);
-          spawnWeaponPickup(_pos.x, _pos.z, w);
+          BATTLE_MAP_PICKUP_POSITIONS.push({ x:_pos.x, z:_pos.z, weapon:w });
           pickupCount++;
         });
 
@@ -948,6 +961,7 @@ function animateCharacter(g,dt,o){
 /* ======================================================================
    SPIELZUSTAND, WAFFEN, ENTITÄTEN
    ====================================================================== */
+const MATCH_TIME = 180;   // 3 Minuten pro Runde
 let GOAL=30;   // im Startmenue einstellbar, 10 bis 200
 const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
@@ -1246,9 +1260,9 @@ function fire(shooter,dir3,muzzle){
   muzzleFlash(visMuzzle, dir3, isPlayer);
   // Flammenwerfer: kraeftiger Feuer-Burst am Muendungslauf, damit das Fauchen sichtbar wird
   if(w.beam){ burstParticles(visMuzzle,3,'fire',7,1.9,.35,-1); if(Math.random()<.5) burstParticles(visMuzzle,1,'smoke',2.5,1.4,.5,-1); }
-  // Rueckstoss auf die Waffen-Animation – NICHT auf die Kamera. Recoil-Kick ist gedaempft,
-  // damit die Waffe beim Schuss nicht sichtbar wegzieht (das nimmt der Spieler als Zielsprung wahr).
-  if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=w.kick*.35; u.recoilRate=Math.max(4,Math.min(20,1/Math.max(.05,w.cooldown*.5))); }
+  // Rueckstoss auf die Waffen-Animation – NICHT auf die Kamera. Der Kick ist auf Pistolen-Niveau
+  // begrenzt, damit sich alle Waffen (auch Sniper, Rocket) genauso ruhig anfuehlen wie die Pistole.
+  if(shooter.mesh&&shooter.mesh.userData){ const u=shooter.mesh.userData; u.recoil=1; u.recoilKick=Math.min(w.kick, .7) * .35; u.recoilRate=Math.max(6,Math.min(22,1/Math.max(.05,w.cooldown*.4))); }
 }
 
 // Mündungsfeuer (Sprite + ein geteiltes Punktlicht für den Spieler)
@@ -1336,7 +1350,7 @@ function updateBullets(dt){
     if(!remove){ for(const tank of tanks){ if(hitTank(b,tank)){ damageTank(tank,b.damage); remove=true; break; } } }
     if(remove){
       // Raketen explodieren IMMER (auch bei direktem Treffer), mit halbem Splashschaden
-      if(b.explosive){ explode(p.x,p.z, b.explodeRadius, Math.max(30, b.damage*0.55)); }
+      if(b.explosive){ explode(p.x,p.z, b.explodeRadius, Math.max(30, b.damage*0.55), false, b.shooter); }
       // Panzergranaten explodieren bei Einschlag
       else if(b.damage===0&&spark){ explode(p.x,p.z,6,70); }
       else if(spark) burstParticles(p,4,'spark',5,.7,.3);
@@ -1351,6 +1365,20 @@ function updateEffects(dt){
   muzzleLight.intensity*=Math.pow(.001,dt*2);
   for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life-=dt; if(p.life<=0){ scene.remove(p.m); partPool.push(p.m); particles.splice(i,1); continue; } p.vy-=p.gravity*dt; p.m.position.x+=p.vx*dt; p.m.position.y+=p.vy*dt; p.m.position.z+=p.vz*dt; if(p.m.position.y<0){ p.m.position.y=0; p.vy*=-.3; p.vx*=.7; p.vz*=.7; } if(p.grow) p.m.scale.multiplyScalar(1+p.grow*dt); }
   for(let i=decals.length-1;i>=0;i--){ const d=decals[i]; d.life-=dt; if(d.life<8) d.mat.opacity=.85*d.life/8; if(d.life<=0){ scene.remove(d.g); decals.splice(i,1);} }
+  // Battle-Map-Rauchwolken schweben leicht, Feuerelemente flackern
+  if(battleMapAnimated.length){
+    const t=state.time;
+    for(const a of battleMapAnimated){
+      if(a.isFire){
+        const s = 1 + Math.sin(t*8 + a.phase)*.12;
+        a.mesh.scale.set(s, s, s);
+      } else {
+        a.mesh.position.y = a.baseY + Math.sin(t*.9 + a.phase)*.25;
+        const s = 1 + Math.sin(t*.6 + a.phase)*.08;
+        a.mesh.scale.set(s, s, s);
+      }
+    }
+  }
 }
 
 /* ======================================================================
@@ -1463,14 +1491,17 @@ function updateHeli(dt){
   }
   if(heli.timer<=0){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); UI.streak(); }
 }
-function explode(x,z,radius,dmg,big=false){
+function explode(x,z,radius,dmg,big=false,shooter=null){
   Audio.explosion({x,z},big); state.shake=Math.max(state.shake,big?1.2:.7);
   const p=new THREE.Vector3(x,.6,z); burstParticles(p,26,'fire',11,2.6,.5,3); burstParticles(p,18,'smoke',5,2.2,2.2,-1.2); burstParticles(p,20,'dust',12,1.2,.8);
   const light=new THREE.PointLight(0xff8030,80,radius*4,2); light.position.set(x,2,z); scene.add(light); smokes.push({light,life:.5});
   const ring=new THREE.Mesh(new THREE.RingGeometry(.5,1.2,40),new THREE.MeshBasicMaterial({color:0xffe0a0,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.set(x,.05,z); scene.add(ring); smokes.push({ring,life:.45});
   const scorch=new THREE.Mesh(new THREE.CircleGeometry(radius*.55,20),new THREE.MeshBasicMaterial({color:0x1a1611,transparent:true,opacity:.7,depthWrite:false})); scorch.rotation.x=-Math.PI/2; scorch.position.set(x,.012,z); scene.add(scorch); decals.push({g:scorch,mat:scorch.material,life:60});
   const hit=(e,attacker)=>{ if(!e.alive) return; const d=Math.hypot(e.x-x,e.z-z); if(d<=radius) damage(e,dmg*(1-.5*d/radius),attacker); };
-  hit(player,{name:'Heli',team:player.team,x,z}); for(const b of bots) hit(b, big? player : {name:'Heli',team:player.team,x,z,isHeli:true});
+  // Wenn der Player selbst der Ausloeser ist, keinen Selbstschaden erzeugen.
+  const attackPlayer = shooter===player ? null : {name:'Heli',team:player.team,x,z};
+  if(attackPlayer) hit(player, attackPlayer);
+  for(const b of bots){ if(shooter===player && b.team===player.team) continue; hit(b, shooter===player ? player : (big? player : {name:'Heli',team:player.team,x,z,isHeli:true})); }
   // Explosionen beschaedigen auch Panzer
   for(const t of tanks){ if(!t.alive) continue; const td=Math.hypot(t.x-x,t.z-z); if(td<=radius+2) damageTank(t,dmg*(1-.4*td/(radius+2))); }
 }
@@ -1522,7 +1553,7 @@ const UI={
   score(){ this.scoreBlue.textContent=state.score.blue; this.scoreRed.textContent=state.score.red; },
   // Spieldauer unter dem Punktestand, in jedem Modus
   clockEl:$('matchClock'), clockLetzt:-1,
-  clock(){ if(!this.clockEl) return; const s=Math.floor(state.clock); if(s===this.clockLetzt) return; this.clockLetzt=s;
+  clock(){ if(!this.clockEl) return; const remaining=Math.max(0, MATCH_TIME - state.clock); const s=Math.ceil(remaining); if(s===this.clockLetzt) return; this.clockLetzt=s;
     this.clockEl.textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
   hitmark(kill){ this.cross.classList.remove('hit','kill'); void this.cross.offsetWidth; this.cross.classList.add('hit'); if(kill) this.cross.classList.add('kill'); },
   hideCross(h){ this.cross.classList.toggle('hidden',h); },
@@ -2208,6 +2239,10 @@ function resetMatch(){
   player.x=0; player.z=_isBlue?-40:40; player.y=0; player.vy=0; player.grounded=true; player.mantle=null; player.stamina=1; player.sprintOn=false; player.sprintLeer=false; player.crouch=false; player.crouchLevel=0; player.crouchAmt=0; player.height=3.6; input.jump=false; input.sprintTap=false; input.crouchTap=false;
   const _face=_isBlue?0:Math.PI; player.faceYaw=_face; player.aimYaw=_face; player.moveYaw=_face; cam.yaw=_isBlue?Math.PI:0; cam.pitch=.12; camPos.set(0,8,_isBlue?-52:52); player.mesh.visible=true;
   bots.forEach(b=>{ b.alive=true; b.hp=100; b.invincible=1.5; const s=teamSpawn(b.team,b.spawnIndex); b.x=s.x; b.z=s.z; b.path=[]; b.mesh.visible=true; b.mesh.position.set(b.x,0,b.z); });
+  // Alte Waffen-Pickups einsammeln und aus den Battle-Map-Podest-Positionen neu spawnen,
+  // damit jede Runde wieder die Superwaffen (Sniper, Rocket, Flammenwerfer, Gatling) am Podest liegen.
+  for(const p of weaponPickups){ scene.remove(p.group); } weaponPickups.length=0;
+  for(const pos of BATTLE_MAP_PICKUP_POSITIONS){ spawnWeaponPickup(pos.x, pos.z, pos.weapon); }
   for(const b of bullets){ scene.remove(b.mesh); bulletPool.push(b.mesh); } bullets.length=0;
   for(const d of decals) scene.remove(d.g); decals.length=0; for(const b of bombs) scene.remove(b.m); bombs.length=0;
   if(heli.active){ heli.active=false; heli.mesh.visible=false; Audio.heliStop(); }
@@ -2299,7 +2334,14 @@ let last=performance.now(), hudT=0;
 function frame(now){
   requestAnimationFrame(frame); const dt=Math.min((now-last)/1000,.05); last=now; state.time+=dt;
   if(state.phase==='play'||state.phase==='end'){
-    if(state.phase==='play'){ state.clock+=dt; updateWeaponSwitch(dt); updatePlayer(dt); updateBots(dt); updateTanks(dt); updateFlags(dt); }
+    if(state.phase==='play'){ state.clock+=dt; updateWeaponSwitch(dt); updatePlayer(dt); updateBots(dt); updateTanks(dt); updateFlags(dt);
+      // Match nach 3 Minuten beenden — Team mit mehr Punkten gewinnt
+      if(state.clock >= MATCH_TIME){
+        const blue=state.score.blue, red=state.score.red;
+        const win = player.team==='blue'? blue>red : red>blue;
+        endMatch(win, 'Zeit abgelaufen');
+      }
+    }
     updateBullets(dt); updateEffects(dt); updateHeli(dt); updateBombs(dt); updateNuke(dt); updateCamera(dt);
     hudT+=dt; if(hudT>.1){ hudT=0; UI.clock(); const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
   } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,dt,{})); }
