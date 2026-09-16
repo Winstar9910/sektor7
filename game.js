@@ -156,6 +156,7 @@ const texWall = makeTex(256,(g,s)=>{ g.fillStyle='#5d5a52'; g.fillRect(0,0,s,s);
 const USE_BATTLE_MAP = true;
 const BATTLE_MAP_URL = 'battle-map.glb';
 const BATTLE_MAP_FIT_XZ = 100;                 // Zielspanne der horizontalen Ausdehnung in Weltmetern
+const BATTLE_MAP_Y_OFFSET = 1.8;               // die Map wird visuell um diesen Wert abgesenkt, damit die sichtbare Bodenoberflaeche auf y=0 liegt (Player laeuft auf y=0)
 const USE_BUILTIN_PROPS = !USE_BATTLE_MAP;     // altes Innen-Setup nur, wenn keine Map genutzt wird
 const ARENA = 110, HALF = ARENA/2;
 const obstacles = [];
@@ -453,6 +454,33 @@ preloadSwatModel();
    ---------------------------------------------------------------------- */
 let BATTLE_MAP_ROOT = null;
 let BATTLE_MAP_LOAD_PROMISE = null;
+// Podest-Beschriftungen aus der GLB -> unsere Waffenkeys
+const BATTLE_MAP_PICKUP_PLATE_TO_WEAPON = {
+  pickup_plate_FT: 'flamethrower',
+  pickup_plate_MG: 'gatling',
+  pickup_plate_RL: 'rocket',
+  pickup_plate_SN: 'sniper'
+};
+// Effekt-/Deko-Meshes, die niemals als Kollider taugen (Pickup-Halos, Waffen auf Podest, Flammen, Rauch).
+const BATTLE_MAP_NO_COLLIDER = new Set([
+  'pickup_disc','pickup_halo','pickup_light',
+  'pickup_plate_FT','pickup_plate_MG','pickup_plate_RL','pickup_plate_SN',
+  'weapon_flamethrower','weapon_gatling','weapon_rocket_launcher','weapon_sniper',
+  'ft_pilot_flame','sn_bipod_1','sn_bipod_2',
+  'flame_outer','flame_inner','fire','fire_light','smoke',
+  'wire_coil','wire_barb'   // Tausende Draht-Details, wuerden die Kollisionsschleife lahmlegen
+]);
+// Diese Meshes werden IMMER kollidiert, auch wenn sie schmaler/niedriger als der Standardfilter sind.
+// Damit stoppen z.B. Stacheldraht-Pfosten und Barrikaden ab jetzt auch Kugeln.
+const BATTLE_MAP_FORCE_COLLIDER = new Set([
+  'wire_post_a','wire_post_b','barbed_wire',
+  'barrier','barrier_base','barrier_top',
+  'sandbag','sandbag_wall',
+  'container','container_body','container_door','container_rib','container_post',
+  'metal_crate','crate_body','crate_band',
+  'wood_pedestal','pedestal_top','pedestal_leg_0','pedestal_leg_1','pedestal_leg_2','pedestal_leg_3','pedestal_brace_1','pedestal_brace_2','pickup_post','pickup_station',
+  'tower_leg','tower_rail'
+]);
 function preloadBattleMap(){
   if(!USE_BATTLE_MAP) return Promise.resolve(null);
   if(BATTLE_MAP_LOAD_PROMISE) return BATTLE_MAP_LOAD_PROMISE;
@@ -469,7 +497,9 @@ function preloadBattleMap(){
         const scale = BATTLE_MAP_FIT_XZ / horiz;
         root.scale.setScalar(scale);
 
-        // 2) Nach dem Skalieren horizontal auf (0,0) zentrieren und minY auf 0 legen.
+        // 2) Nach dem Skalieren horizontal auf (0,0) zentrieren und minY zunaechst auf 0 legen.
+        //    Erst NACH der Kollider-Ableitung senken wir die Map noch um BATTLE_MAP_Y_OFFSET ab.
+        //    Die Kollider bleiben dabei bei y>=0 verankert, weil das Kollisionssystem xz-basiert ist.
         root.updateMatrixWorld(true);
         const box1 = new THREE.Box3().setFromObject(root);
         const c = box1.getCenter(new THREE.Vector3());
@@ -489,26 +519,45 @@ function preloadBattleMap(){
         scene.add(root);
         BATTLE_MAP_ROOT = root;
 
-        // 4) Kollider aus den Meshes ableiten. Jede Mesh wird zu einer AABB.
-        //    Boden-/Deckenflaechen (sehr flach) sind begehbar und werden uebersprungen.
-        //    Winzige Deko-Meshes ebenso. Meshes ausserhalb der Aussenmauern werden geclippt.
+        // 4) Kollider aus den Meshes ableiten. Effekt-/Halo-/Waffen-Meshes werden ausgelassen,
+        //    Zaunpfosten und Barrikaden sind eine Whitelist und werden immer kollidiert.
         const bb = new THREE.Box3(), sz = new THREE.Vector3(), ct = new THREE.Vector3();
         const CLIP = HALF - 1.5;
         let colliderCount = 0;
         root.traverse(o=>{
           if(!o.isMesh) return;
+          const name = o.name || '';
+          if(BATTLE_MAP_NO_COLLIDER.has(name)) return;
+          const forced = BATTLE_MAP_FORCE_COLLIDER.has(name);
           bb.setFromObject(o);
           bb.getSize(sz);
           bb.getCenter(ct);
-          if(sz.y < 0.35) return;                                   // flach = Boden/Decke/Decal
-          if(sz.x < 0.25 && sz.z < 0.25) return;                    // sehr schmal = Deko
+          if(!forced){
+            if(sz.y < 0.35) return;                                 // flach = Boden/Decke/Decal
+            if(sz.x < 0.25 && sz.z < 0.25) return;                  // sehr schmal = Deko
+          }
           if(ct.x < -CLIP || ct.x > CLIP || ct.z < -CLIP || ct.z > CLIP) return; // ausserhalb der Arena
-          // Der Kollisionskasten reicht in dieser Engine von y=0 bis y=h, ist also am Boden verankert.
           const h = Math.max(bb.max.y, 0.4);
-          obstacles.push({ x: ct.x, z: ct.z, w: sz.x, h, d: sz.z });
+          obstacles.push({ x: ct.x, z: ct.z, w: Math.max(sz.x, .2), h, d: Math.max(sz.z, .2) });
           colliderCount++;
         });
-        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}`);
+
+        // 5) Waffenpodeste erkennen: an jeder pickup_plate_* eine echte Aufhebe-Zone spawnen.
+        const _pos = new THREE.Vector3();
+        let pickupCount = 0;
+        root.traverse(o=>{
+          const w = BATTLE_MAP_PICKUP_PLATE_TO_WEAPON[o.name];
+          if(!w) return;
+          o.getWorldPosition(_pos);
+          spawnWeaponPickup(_pos.x, _pos.z, w);
+          pickupCount++;
+        });
+
+        // 6) Erst jetzt visuell absenken, damit die sichtbare Bodenoberflaeche mit y=0 zusammenfaellt.
+        root.position.y -= BATTLE_MAP_Y_OFFSET;
+        root.updateMatrixWorld(true);
+
+        console.log(`[Battle Map] geladen — Original ${size0.x.toFixed(1)} x ${size0.y.toFixed(1)} x ${size0.z.toFixed(1)}, Skala ${scale.toFixed(3)}, Kollider ${colliderCount}, Waffen-Pickups ${pickupCount}`);
         resolve(root);
       }, undefined, (err)=>{
         console.warn('[Battle Map] konnte nicht geladen werden:', err);
@@ -756,7 +805,11 @@ const weapons={
   ak:     {name:'AK-47',   cooldown:.105,damage:12,speed:95, pellets:1,spread:.016,mag:30,reload:1.9,auto:true, range:80,kick:.6,tracer:0xffd27a},
   shotgun:{name:'Shotgun', cooldown:.62, damage:15,speed:70, pellets:8,spread:.11, mag:6, reload:2.3,auto:false,range:26,kick:1.4,tracer:0xffb060},
   sniper: {name:'Sniper',  cooldown:1.25,damage:100,speed:170,pellets:1,spread:.004,mag:5, reload:2.6,auto:false,range:140,kick:1.8,tracer:0xa0e0ff},
-  pistol: {name:'Pistol',  cooldown:.38, damage:22, speed:90, pellets:1,spread:.014,mag:12,reload:1.4,auto:false,range:45, kick:.7,tracer:0xffcc80}
+  pistol: {name:'Pistol',  cooldown:.38, damage:22, speed:90, pellets:1,spread:.014,mag:12,reload:1.4,auto:false,range:45, kick:.7,tracer:0xffcc80},
+  // Spezialwaffen von den Podesten der Battle-Map
+  flamethrower:{name:'Flammenwerfer',cooldown:.05, damage:7,  speed:55, pellets:1,spread:.14, mag:120,reload:2.6,auto:true, range:18, kick:.25,tracer:0xff6a10},
+  gatling:     {name:'Gatling',      cooldown:.06, damage:11, speed:110,pellets:1,spread:.045,mag:100,reload:3.4,auto:true, range:75, kick:.45,tracer:0xffcc60},
+  rocket:      {name:'Rocket',       cooldown:1.35,damage:95, speed:80, pellets:1,spread:.006,mag:4,  reload:3.2,auto:false,range:110,kick:2.2,tracer:0xff3020}
 };
 const state={ phase:'menu', mode:'quick', splash:false, assist:true, sens:8, score:{blue:0,red:0}, time:0, clock:0, shake:0, shakeRate:6, weaponDrop:false };
 const player={ name:'Du', x:0,z:40, radius:.7, team:'blue', hp:100, hpMax:100, alive:true, respawn:0, invincible:0, weapon:'pistol', shootTimer:0, mag:12, reloading:0, kills:0,deaths:0, streak:0,bestStreak:0, lastHit:0, faceYaw:0, aimYaw:0, moveYaw:0, stepT:0, y:0, vy:0, grounded:true, mantle:null, stamina:1, sprintOn:false, sprintLeer:false, crouch:false, crouchAmt:0, height:3.6, mesh:makeCharacter('blue',true) };
@@ -844,8 +897,8 @@ for(let i=0;i<6;i++) createBot('red',i);
 
 // Waffen-Pickup: blaue GTA-Blase mit rotierender Waffe drin
 const weaponPickups=[];
-const PICKUP_COLORS={pistol:0x4ade80, ak:0xfb923c, shotgun:0xef4444, sniper:0x60a5fa};
-const PICKUP_COLORS_LIGHT={pistol:0x86efac, ak:0xfdba74, shotgun:0xfca5a5, sniper:0x93c5fd};
+const PICKUP_COLORS={pistol:0x4ade80, ak:0xfb923c, shotgun:0xef4444, sniper:0x60a5fa, flamethrower:0xff6a10, gatling:0xfacc15, rocket:0xff2e2e};
+const PICKUP_COLORS_LIGHT={pistol:0x86efac, ak:0xfdba74, shotgun:0xfca5a5, sniper:0x93c5fd, flamethrower:0xffb46a, gatling:0xfde68a, rocket:0xff9a9a};
 const pickupGunMat=new THREE.MeshStandardMaterial({color:0xdedee6,roughness:.35,metalness:.7,emissive:0x1a3550,emissiveIntensity:.7});
 function _pickupBubbleMat(key){
   const c=PICKUP_COLORS[key]||0x5cb1ff;
