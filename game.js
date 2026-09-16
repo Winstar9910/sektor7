@@ -15,19 +15,18 @@ const Audio = {
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 6; comp.attack.value = .003; comp.release.value = .12;
     this.master.connect(comp); comp.connect(this.ctx.destination);
-    // Dry/Wet-Bus: alles laeuft parallel durch einen Convolver mit prozeduraler Impulsantwort.
-    // Das gibt jedem Schuss einen kurzen Raumhall und wirkt sofort viel "raeumlicher".
+    // Dry-Bus: Sounds gehen direkt auf den Master, ohne Convolver-Reverb.
+    // Der frühere Nachhall hat die Schüsse matschig gemacht (klang wie Fussgeraeusche).
     this.dry = this.ctx.createGain(); this.dry.gain.value = 1.0; this.dry.connect(this.master);
-    this.wet = this.ctx.createGain(); this.wet.gain.value = .28; this.wet.connect(this.master);
+    this.wet = this.ctx.createGain(); this.wet.gain.value = 0.0; this.wet.connect(this.master);
     this.conv = this.ctx.createConvolver();
-    // Impulsantwort: weisses Rauschen mit exponentiellem Decay, stereo, ca. 1.4 s.
-    const sr = this.ctx.sampleRate, irLen = Math.floor(sr * 1.4);
+    // Impulsantwort bleibt für spaetere Nutzung, ist aber wet=0 deaktiviert.
+    const sr = this.ctx.sampleRate, irLen = Math.floor(sr * 0.3);
     const ir = this.ctx.createBuffer(2, irLen, sr);
     for(let ch=0; ch<2; ch++){
       const data = ir.getChannelData(ch);
       for(let i=0; i<irLen; i++){
         const t = i / irLen;
-        // Kurze Anfangsstille, dann schneller Attack, dann Exp-Decay mit dichten Reflexionen
         const env = Math.pow(1 - t, 3.2);
         data[i] = (Math.random()*2 - 1) * env * (i < sr*0.005 ? i/(sr*0.005) : 1);
       }
