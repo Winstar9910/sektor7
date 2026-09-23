@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 
 /* ======================================================================
    AUDIO – alles synthetisch über die Web Audio API, keine externen Dateien
@@ -164,13 +171,17 @@ const Audio = {
    RENDERER, SZENE, LICHT
    ====================================================================== */
 const isTouch = matchMedia('(pointer: coarse)').matches;
-const quality = { high:{px:2,shadow:2048,shadowOn:true}, medium:{px:1.5,shadow:1536,shadowOn:true}, low:{px:1,shadow:1024,shadowOn:false} };
+const quality = {
+  high:  {px:2,   shadow:2048, shadowOn:true,  post:true,  ssao:true,  bloom:true,  smaa:true },
+  medium:{px:1.5, shadow:1536, shadowOn:true,  post:true,  ssao:false, bloom:true,  smaa:true },
+  low:   {px:1,   shadow:1024, shadowOn:false, post:false, ssao:false, bloom:false, smaa:false}
+};
 let Q = quality.medium;
 
 const canvas = document.getElementById('gl');
 const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
@@ -2437,7 +2448,7 @@ function startMatch(){
   if(typeof updateZoomAvailability==='function') updateZoomAvailability();
   setTimeout(()=>{ try{ UI.toast(_drop? 'Pistole zum Start. An Waffenblasen Aufnehmen bestaetigen (E).' : 'AK-47 zum Start. Kein Waffendrop aktiv.'); }catch(e){} }, 1600);
   Audio.init(); Audio.resume(); Audio.enabled=$('optSound').checked; state.splash=$('optSplash').checked; state.assist=$('optAssist').checked; state.weaponDrop=$('optWeaponDrop')?.checked||false; state.sens=+$('optSens').value;
-  Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null;
+  Q=quality[$('optQuality').value]; renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.shadowMap.enabled=Q.shadowOn; sun.shadow.mapSize.set(Q.shadow,Q.shadow); sun.shadow.map&&sun.shadow.map.dispose(); sun.shadow.map=null; applyPost();
   scene.traverse(o=>{ if(o.material) o.material.needsUpdate=true; });
   GOAL=Math.max(10,Math.min(200,+$('optGoal').value||30));
   resetMatch(); state.phase='play'; $('startScreen').hidden=true; $('endScreen').hidden=true; UI.hud.hidden=false; $('touch').hidden=!isTouch; $('goalN').textContent= state.mode==='flag'? flagPunkteZiel() : GOAL; UI.clockLetzt=-1; UI.clock();
@@ -2490,9 +2501,75 @@ $('ctrlDesktop').hidden=isTouch; $('ctrlTouch').hidden=!isTouch; if(isTouch) $('
 document.addEventListener('visibilitychange',()=>{ if(document.hidden){ input.keys={}; input.fire=false; input.jump=false; } else Audio.resume(); });
 
 /* ======================================================================
+   ENVIRONMENT-MAP + POST-PROCESSING
+   Bloom, Kontakt-AO, Color-Grading (Teal/Orange) und SMAA für den
+   "teuren" Konsolen-Look. Prinzip bleibt gewahrt: Die Env-Map wird
+   prozedural aus den Himmelsfarben gebaut, keine externen HDRIs/Texturen.
+   ====================================================================== */
+// Prozedurale Reflexions-Umgebung: gibt allen Metallflächen etwas zum Spiegeln.
+(function buildEnvironment(){
+  const c=document.createElement('canvas'); c.width=64; c.height=128; const g=c.getContext('2d');
+  const grad=g.createLinearGradient(0,0,0,128);
+  grad.addColorStop(0.00,'#6f9bd0');  // Zenit
+  grad.addColorStop(0.46,'#cdbe9c');  // Horizontdunst
+  grad.addColorStop(0.54,'#9c9074');
+  grad.addColorStop(1.00,'#3f3c2b');  // Boden
+  g.fillStyle=grad; g.fillRect(0,0,64,128);
+  const sg=g.createRadialGradient(46,24,0,46,24,30);   // weiche Sonne
+  sg.addColorStop(0,'rgba(255,246,224,.9)'); sg.addColorStop(1,'rgba(255,246,224,0)');
+  g.fillStyle=sg; g.fillRect(0,0,64,64);
+  const tex=new THREE.CanvasTexture(c); tex.mapping=THREE.EquirectangularReflectionMapping; tex.colorSpace=THREE.SRGBColorSpace;
+  const pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+  scene.environment=pmrem.fromEquirectangular(tex).texture;
+  tex.dispose(); pmrem.dispose();
+})();
+
+let composer=null, bloomPass=null, ssaoPass=null, smaaPass=null, usePost=false;
+const GradeShader={
+  uniforms:{ tDiffuse:{value:null}, vig:{value:0.30}, sat:{value:1.12}, con:{value:1.06}, split:{value:0.045} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float vig,sat,con,split; varying vec2 vUv;
+    void main(){
+      vec3 c=texture2D(tDiffuse,vUv).rgb;
+      c=(c-0.5)*con+0.5;                                   // Kontrast (S-Kurve)
+      float l=dot(c,vec3(0.2126,0.7152,0.0722));
+      c=mix(vec3(l),c,sat);                                // Sättigung
+      c.r+=split*(l-0.5); c.b-=split*(l-0.5);             // Teal/Orange-Split
+      vec2 q=vUv-0.5; c*=1.0-vig*dot(q,q)*2.2;             // Vignette
+      gl_FragColor=vec4(clamp(c,0.0,1.0),1.0);
+    }`
+};
+(function buildComposer(){
+  composer=new EffectComposer(renderer);
+  composer.setPixelRatio(Math.min(devicePixelRatio,Q.px));
+  composer.setSize(innerWidth,innerHeight);
+  composer.addPass(new RenderPass(scene,camera));
+  ssaoPass=new SSAOPass(scene,camera,innerWidth,innerHeight);
+  ssaoPass.kernelRadius=10; ssaoPass.minDistance=0.0025; ssaoPass.maxDistance=0.12; ssaoPass.enabled=false;
+  composer.addPass(ssaoPass);
+  bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.55, 0.55, 0.85);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+  composer.addPass(new ShaderPass(GradeShader));   // Grading auf dem fertigen LDR-Bild
+  smaaPass=new SMAAPass(innerWidth,innerHeight);
+  composer.addPass(smaaPass);
+})();
+function applyPost(){
+  usePost = Q.post!==false;
+  if(!composer) return;
+  composer.setPixelRatio(Math.min(devicePixelRatio,Q.px));
+  composer.setSize(innerWidth,innerHeight);
+  if(ssaoPass) ssaoPass.enabled=!!Q.ssao;
+  if(bloomPass) bloomPass.enabled=!!Q.bloom;
+  if(smaaPass) smaaPass.enabled=!!Q.smaa;
+}
+applyPost();
+
+/* ======================================================================
    SCHLEIFE
    ====================================================================== */
-addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); composer&&composer.setSize(innerWidth,innerHeight); });
 renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.setSize(innerWidth,innerHeight);
 camera.position.set(0,18,48); camPos.copy(camera.position);
 let last=performance.now(), hudT=0;
@@ -2510,7 +2587,7 @@ function frame(now){
     updateBullets(dt); updateEffects(dt); updateHeli(dt); updateBombs(dt); updateNuke(dt); updateCamera(dt);
     hudT+=dt; if(hudT>.1){ hudT=0; UI.clock(); UI.status(); const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
   } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,dt,{})); }
-  if(!state.noRender) renderer.render(scene,camera);
+  if(!state.noRender){ if(usePost && composer) composer.render(); else renderer.render(scene,camera); }
 }
 requestAnimationFrame(frame);
 if(location.hash==='#test'){ state.noRender=true; window.__game={state,player,bots,cam,input,weapons,heli,nuke,renderer,scene,camera,selectWeapon,reload,callHeli,launchNuke,startMatch}; }
