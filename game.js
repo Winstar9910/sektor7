@@ -4,10 +4,9 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 
 /* ======================================================================
    AUDIO – alles synthetisch über die Web Audio API, keine externen Dateien
@@ -2524,7 +2523,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden){ input.ke
   tex.dispose(); pmrem.dispose();
 })();
 
-let composer=null, bloomPass=null, ssaoPass=null, smaaPass=null, usePost=false;
+let composer=null, bloomPass=null, fxaaPass=null, usePost=false, postSupported=true;
 const GradeShader={
   uniforms:{ tDiffuse:{value:null}, vig:{value:0.30}, sat:{value:1.12}, con:{value:1.06}, split:{value:0.045} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
@@ -2541,35 +2540,57 @@ const GradeShader={
     }`
 };
 (function buildComposer(){
-  composer=new EffectComposer(renderer);
+  // 8-Bit-Rendertarget (RGBA8) statt HalfFloat: vermeidet Schwarzbild auf GPUs/
+  // WebViews ohne renderbare Float-Buffer und erlaubt einen zuverlaessigen
+  // Pixel-Selbsttest. Kantenglaettung ueber FXAA (float-frei, mobilfreundlich).
+  const dbs=renderer.getDrawingBufferSize(new THREE.Vector2());
+  const rt=new THREE.WebGLRenderTarget(dbs.x, dbs.y, { type: THREE.UnsignedByteType });
+  composer=new EffectComposer(renderer, rt);
   composer.setPixelRatio(Math.min(devicePixelRatio,Q.px));
   composer.setSize(innerWidth,innerHeight);
   composer.addPass(new RenderPass(scene,camera));
-  ssaoPass=new SSAOPass(scene,camera,innerWidth,innerHeight);
-  ssaoPass.kernelRadius=10; ssaoPass.minDistance=0.0025; ssaoPass.maxDistance=0.12; ssaoPass.enabled=false;
-  composer.addPass(ssaoPass);
-  bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.55, 0.55, 0.85);
+  bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.85);
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
   composer.addPass(new ShaderPass(GradeShader));   // Grading auf dem fertigen LDR-Bild
-  smaaPass=new SMAAPass(innerWidth,innerHeight);
-  composer.addPass(smaaPass);
+  fxaaPass=new ShaderPass(FXAAShader);
+  composer.addPass(fxaaPass);
 })();
+// Einmaliger Selbsttest: Pipeline offscreen rendern und pruefen, ob Bild ankommt.
+// Bleibt alles schwarz (z. B. keine renderbaren Float-Buffer), wird Post dauerhaft
+// abgeschaltet und auf Direktrendering zurueckgefallen - nie mehr Schwarzbild.
+function postSelfTest(){
+  try{
+    composer.renderToScreen=false;
+    composer.setSize(64,64);
+    composer.render();
+    const px=new Uint8Array(64*64*4); let mx=0;
+    for(const buf of [composer.readBuffer, composer.writeBuffer]){
+      try{ renderer.readRenderTargetPixels(buf,0,0,64,64,px);
+        for(let i=0;i<px.length;i+=4){ if(px[i]>mx)mx=px[i]; if(px[i+1]>mx)mx=px[i+1]; if(px[i+2]>mx)mx=px[i+2]; }
+      }catch(e){}
+    }
+    composer.renderToScreen=true; composer.setSize(innerWidth,innerHeight);
+    return mx;
+  }catch(e){ composer.renderToScreen=true; return -1; }
+}
+function setFxaaRes(){ if(fxaaPass){ const pr=Math.min(devicePixelRatio,Q.px); fxaaPass.material.uniforms.resolution.value.set(1/(innerWidth*pr), 1/(innerHeight*pr)); } }
 function applyPost(){
-  usePost = Q.post!==false;
+  usePost = (Q.post!==false) && postSupported;
   if(!composer) return;
   composer.setPixelRatio(Math.min(devicePixelRatio,Q.px));
   composer.setSize(innerWidth,innerHeight);
-  if(ssaoPass) ssaoPass.enabled=!!Q.ssao;
   if(bloomPass) bloomPass.enabled=!!Q.bloom;
-  if(smaaPass) smaaPass.enabled=!!Q.smaa;
+  setFxaaRes();
 }
+{ const _mx=postSelfTest(); postSupported = renderer.capabilities.isWebGL2 && _mx>=4;
+  if(!postSupported) console.warn('[post] Selbsttest fehlgeschlagen (max='+_mx+', webgl2='+renderer.capabilities.isWebGL2+') -> Direktrendering'); }
 applyPost();
 
 /* ======================================================================
    SCHLEIFE
    ====================================================================== */
-addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); composer&&composer.setSize(innerWidth,innerHeight); });
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); composer&&composer.setSize(innerWidth,innerHeight); if(typeof setFxaaRes==='function') setFxaaRes(); });
 renderer.setPixelRatio(Math.min(devicePixelRatio,Q.px)); renderer.setSize(innerWidth,innerHeight);
 camera.position.set(0,18,48); camPos.copy(camera.position);
 let last=performance.now(), hudT=0;
@@ -2587,7 +2608,12 @@ function frame(now){
     updateBullets(dt); updateEffects(dt); updateHeli(dt); updateBombs(dt); updateNuke(dt); updateCamera(dt);
     hudT+=dt; if(hudT>.1){ hudT=0; UI.clock(); UI.status(); const low=Math.max(0,Math.min(1,(45-player.hp)/35)); const hurt=Math.max(0,Math.min(1,1-(state.time-player.lastHit)/.6)); UI.vignette.style.opacity=Math.max(low*.9,hurt*.8); if(UI.hurtDirT>0){ UI.hurtDirT-=.1; if(UI.hurtDirT<=0) UI.hurtDir.style.opacity=0; else UI.hurtDir.style.opacity=UI.hurtDirT*2; } }
   } else { menuCamera(dt); updateEffects(dt); bots.forEach(b=>animateCharacter(b.mesh,dt,{})); }
-  if(!state.noRender){ if(usePost && composer) composer.render(); else renderer.render(scene,camera); }
+  if(!state.noRender){
+    if(usePost && composer){
+      try{ composer.render(); }
+      catch(e){ console.error('[post] deaktiviert nach Fehler:', e); usePost=false; renderer.render(scene,camera); }
+    } else renderer.render(scene,camera);
+  }
 }
 requestAnimationFrame(frame);
 if(location.hash==='#test'){ state.noRender=true; window.__game={state,player,bots,cam,input,weapons,heli,nuke,renderer,scene,camera,selectWeapon,reload,callHeli,launchNuke,startMatch}; }
