@@ -7,6 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 /* ======================================================================
    AUDIO – alles synthetisch über die Web Audio API, keine externen Dateien
@@ -704,7 +705,7 @@ function preloadSwatModel(){
   SWAT_LOAD_PROMISE=new Promise((resolve)=>{
     try{
       const loader=new GLTFLoader();
-      loader.load('swat-operator.glb',(gltf)=>{
+      loader.load('swat-operator_1.glb',(gltf)=>{
         SWAT_TEMPLATE=gltf.scene;
         SWAT_TEMPLATE.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh){ o.castShadow=true; o.receiveShadow=false; if(o.frustumCulled!==undefined) o.frustumCulled=false; } });
         resolve(SWAT_TEMPLATE);
@@ -2521,6 +2522,16 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden){ input.ke
   const pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
   scene.environment=pmrem.fromEquirectangular(tex).texture;
   tex.dispose(); pmrem.dispose();
+  // Upgrade auf echte HDRI (CC0, Poly Haven) sobald geladen; bei Fehler bleibt die prozedurale Umgebung.
+  try{
+    new RGBELoader().load('assets/env.hdr', (hdr)=>{
+      try{
+        hdr.mapping=THREE.EquirectangularReflectionMapping;
+        const pm=new THREE.PMREMGenerator(renderer); pm.compileEquirectangularShader();
+        scene.environment=pm.fromEquirectangular(hdr).texture; hdr.dispose(); pm.dispose();
+      }catch(e){ console.warn('[env] HDRI-Verarbeitung fehlgeschlagen:', e); }
+    }, undefined, (err)=>{ console.warn('[env] HDRI nicht geladen, prozedurale Umgebung bleibt:', err); });
+  }catch(e){ console.warn('[env] RGBELoader-Fehler:', e); }
 })();
 
 let composer=null, bloomPass=null, fxaaPass=null, usePost=false, postSupported=true;
